@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Birthdays</title>
+<link rel="icon" href="{{BASE_URL}}/favicon.ico">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { background:#0f1115; color:#e8eaed; margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    line-height:1.5; }
+  .wrap { max-width:880px; margin:0 auto; padding:26px 18px 60px; }
+  header { display:flex; align-items:center; justify-content:space-between;
+    gap:14px; flex-wrap:wrap; margin-bottom:8px; }
+  h1 { font-size:22px; margin:0; }
+  .sub { color:#8a93a4; font-size:13px; margin:2px 0 20px; }
+  .tools { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+  input[type=text], select { background:#0b0d12; color:#e8eaed;
+    border:1px solid #2a2f3a; border-radius:8px; padding:9px 11px; font-size:14px; }
+  input#q { flex:1; min-width:160px; }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { text-align:left; padding:10px 10px; border-bottom:1px solid #20242e; }
+  th { color:#8a93a4; font-weight:600; font-size:12px; text-transform:uppercase;
+    letter-spacing:.04em; cursor:pointer; user-select:none; }
+  tr:hover td { background:#14171f; }
+  .name { font-weight:600; }
+  .today { color:#f9a8d4; font-weight:700; }
+  .chip { background:#0b0d12; border:1px solid #2a2f3a; border-radius:999px;
+    padding:3px 9px; font-size:11.5px; color:#cbd5e1; display:inline-block; }
+  .count { color:#7a8497; font-size:12.5px; margin:10px 2px; }
+  .card { background:#1a1d24; border:1px solid #2a2f3a; border-radius:12px;
+    padding:26px; text-align:center; }
+  .card h2 { margin:0 0 8px; font-size:18px; }
+  .card p { color:#9aa3b2; margin:6px 0 16px; }
+  a.btn,button.btn { background:#5865f2; color:#fff; border:0; padding:11px 20px;
+    border-radius:8px; text-decoration:none; font-weight:600; font-size:14px;
+    cursor:pointer; display:inline-block; }
+  button.logout { background:none; color:#8a93a4; border:1px solid #2a2f3a;
+    padding:8px 13px; border-radius:7px; font-size:12px; font-weight:600; cursor:pointer; }
+  button.logout:hover { color:#fca5a5; border-color:#5c2630; }
+  .logout-form { margin:0; display:none; }
+  .logout-form.show { display:inline; }
+  .hidden { display:none !important; }
+  @media (max-width:560px){ td.hide,th.hide{ display:none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>🎂 Birthdays</h1>
+      <div class="sub" id="sub">Loading…</div>
+    </div>
+    <form class="logout-form" method="POST" action="/auth/logout">
+      <button type="submit" class="logout">Sign out</button>
+    </form>
+  </header>
+
+  <div id="loaded" class="hidden">
+    <div class="tools">
+      <input id="q" type="text" placeholder="Search name, zodiac, season…">
+      <select id="sortby">
+        <option value="upcoming">Sort: upcoming first</option>
+        <option value="month">Sort: by date</option>
+        <option value="name">Sort: by name</option>
+      </select>
+    </div>
+    <div class="count" id="count"></div>
+    <table>
+      <thead><tr>
+        <th data-s="name">Member</th>
+        <th data-s="month">Birthday</th>
+        <th class="hide">Zodiac</th>
+        <th class="hide">Season</th>
+        <th data-s="upcoming">Countdown</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div id="prompt" class="card hidden">
+    <h2 id="prompt-title">Sign in to see this list</h2>
+    <p id="prompt-msg"></p>
+    <a class="btn" id="login">Sign in with Discord</a>
+  </div>
+</div>
+
+<script>
+const API="{{BASE_URL}}", GUILD="{{GUILD_ID}}";
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+let users=[], sortBy='upcoming';
+const cap=s=>String(s||'').replace(/^./,c=>c.toUpperCase());
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+(function(){
+  const u=new URL(API), ret=encodeURIComponent(location.pathname);
+  document.getElementById('login').href=u.origin+'/auth/login?return_to='+ret;
+  document.querySelectorAll('.logout-form').forEach(f=>{
+    f.action=u.origin+'/auth/logout?return_to='+ret; });
+})();
+
+function prompt(title,msg){
+  document.getElementById('loaded').classList.add('hidden');
+  document.getElementById('prompt').classList.remove('hidden');
+  document.getElementById('prompt-title').textContent=title;
+  document.getElementById('prompt-msg').textContent=msg||'';
+}
+function countdown(d){
+  if(d===0) return '<span class="today">🎉 Today!</span>';
+  if(d===1) return 'Tomorrow';
+  return 'in '+d+' days';
+}
+function render(){
+  const q=document.getElementById('q').value.trim().toLowerCase();
+  let list=users.filter(u=>{
+    if(!q) return true;
+    return [u.discord_name,u.zodiac,u.season,u.birthstone,u.chinese_zodiac]
+      .filter(Boolean).join(' ').toLowerCase().includes(q);
+  });
+  list.sort((a,b)=>{
+    if(sortBy==='name') return (a.discord_name||'').localeCompare(b.discord_name||'');
+    if(sortBy==='month') return a.month-b.month || a.day-b.day;
+    return a.days_until-b.days_until; // upcoming
+  });
+  document.getElementById('rows').innerHTML = list.map(u=>`
+    <tr>
+      <td class="name">${esc(u.discord_name||u.discord_id)}</td>
+      <td>${MONTHS[u.month-1]} ${u.day}${u.year?(' '+u.year):''}${u.age!=null?` <span class="chip">${u.age}</span>`:''}</td>
+      <td class="hide"><span class="chip">${cap(u.zodiac)}</span></td>
+      <td class="hide"><span class="chip">${cap(u.season)}</span></td>
+      <td>${countdown(u.days_until)}</td>
+    </tr>`).join('') ||
+    `<tr><td colspan="5" style="color:#7a8497;padding:20px 10px">No matches.</td></tr>`;
+  document.getElementById('count').textContent =
+    list.length+' of '+users.length+' member'+(users.length===1?'':'s');
+}
+
+document.getElementById('q').addEventListener('input',render);
+document.getElementById('sortby').addEventListener('change',e=>{ sortBy=e.target.value; render(); });
+document.querySelectorAll('th[data-s]').forEach(th=>th.addEventListener('click',()=>{
+  sortBy=th.dataset.s; document.getElementById('sortby').value=sortBy; render(); }));
+
+async function load(){
+  let r;
+  try{ r=await fetch(API+'/users/'+GUILD+'/data',{credentials:'include',cache:'no-store'}); }
+  catch(e){ prompt('Couldn’t reach the server','Please try again in a moment.'); return; }
+  if(r.status===401){
+    document.getElementById('sub').textContent='';
+    document.querySelectorAll('.logout-form').forEach(f=>f.classList.remove('show'));
+    let m='Sign in with Discord to view this server’s birthdays.';
+    try{ const d=await r.json(); if(d.error) m=d.error; }catch(_){}
+    prompt('Sign in to see this list',m); return;
+  }
+  if(!r.ok){
+    let m='You don’t have access to this list.';
+    try{ const d=await r.json(); if(d.error) m=d.error; }catch(_){}
+    document.getElementById('sub').textContent='';
+    prompt('Not available',m); return;
+  }
+  const d=await r.json();
+  users=d.users||[];
+  document.getElementById('sub').textContent =
+    (d.guild_name?d.guild_name+' · ':'')+users.length+' birthday'+(users.length===1?'':'s')+' on file';
+  document.querySelectorAll('.logout-form').forEach(f=>f.classList.add('show'));
+  document.getElementById('prompt').classList.add('hidden');
+  document.getElementById('loaded').classList.remove('hidden');
+  render();
+}
+load();
+</script>
+</body>
+</html>

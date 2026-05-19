@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Birthday Role</title>
+<link rel="icon" href="__BASE_URL__/favicon.ico">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0f1115; color:#e8eaed;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    font-size:14px; line-height:1.5; padding:24px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:#8a93a4; font-size:13px; margin:0 0 20px; }
+  .q { font-weight:700; font-size:14px; margin:0 0 9px; }
+  .opts { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:7px; margin-bottom:10px; }
+  .opt { display:flex; gap:8px; align-items:flex-start; border:1px solid #262b36;
+    border-radius:8px; padding:9px 11px; cursor:pointer; background:#14171f;
+    transition:border-color .1s; }
+  .opt:hover { border-color:#3a4150; }
+  .opt.sel { border-color:#ec4899; background:#1f1422; }
+  .opt input { margin:1px 0 0; accent-color:#ec4899; flex:none; }
+  .opt .t { font-weight:600; font-size:12.5px; line-height:1.25; }
+  .opt .d { color:#8a93a4; font-size:11px; line-height:1.3; margin-top:1px; }
+  .extra { margin:2px 0 6px; }
+  .inline { color:#cfd6e4; font-size:13px; padding:10px 12px; border:1px solid #262b36;
+    border-radius:8px; background:#14171f; }
+  .inline input[type=number] { width:70px; background:#0b0d12; color:#e8eaed;
+    border:1px solid #2a2f3a; border-radius:6px; padding:5px 7px; font-size:13px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+  .ck { display:flex; gap:6px; align-items:center; border:1px solid #2a2f3a;
+    border-radius:999px; padding:5px 11px; font-size:12px; cursor:pointer;
+    background:#0b0d12; user-select:none; }
+  .ck.on { border-color:#ec4899; background:#241526; color:#f9c9e4; }
+  .ck input { display:none; }
+  select, input[type=text], input[type=number] { background:#0b0d12; color:#e8eaed;
+    border:1px solid #2a2f3a; border-radius:6px; padding:8px 10px; font-size:13px; }
+  select:focus, input:focus { outline:1px solid #ec4899; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  button { background:#262b36; color:#e8eaed; border:0; border-radius:7px;
+    padding:8px 13px; font-size:13px; font-weight:600; cursor:pointer; }
+  button:hover { background:#313845; }
+  button.primary { background:#ec4899; color:#fff; padding:11px 22px; font-size:14px; }
+  button.primary:hover { background:#db2777; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  button.primary:disabled:hover { background:#ec4899; }
+  button.x { background:none; color:#8a93a4; padding:4px 6px; }
+  button.x:hover { color:#fca5a5; }
+  .share { background:#1a1320; border:1px solid #3b2a4f; border-radius:10px;
+    padding:13px 15px; margin:20px 0; font-size:13px; color:#d7c6ec; }
+  .share b { color:#f3e8ff; }
+  .copybox { display:flex; gap:8px; margin-top:9px; align-items:stretch; flex-wrap:wrap; }
+  .copybox code { flex:1; min-width:0; background:#0b0d12; border:1px solid #3a2a4a;
+    border-radius:6px; padding:8px 10px; font-size:12px; overflow:auto; white-space:nowrap; }
+  .btn-open { background:#262b36; color:#e8eaed; border-radius:7px; padding:8px 13px;
+    font-size:13px; font-weight:600; text-decoration:none; display:inline-flex;
+    align-items:center; white-space:nowrap; }
+  .btn-open:hover { background:#313845; }
+  .sup { background:#171b25; border:1px solid #2a2f3a; border-radius:10px;
+    padding:13px 15px; margin:14px 0; font-size:13px; color:#cfd6e4; }
+  .sup b { color:#e8eaed; }
+  .sup .vp { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+    gap:7px; margin-top:10px; }
+  .sup .vp label { display:flex; gap:8px; align-items:flex-start; border:1px solid #262b36;
+    border-radius:8px; padding:8px 10px; cursor:pointer; background:#14171f; }
+  .sup .vp label.sel { border-color:#ec4899; background:#1f1422; }
+  .sup .vp input { margin:1px 0 0; accent-color:#ec4899; flex:none; }
+  .sup .vp .t { font-weight:600; font-size:12.5px; }
+  .sup .vp .d { color:#8a93a4; font-size:11px; margin-top:1px; }
+  .sup .saved { color:#7fd9b4; font-size:11.5px; margin-left:8px; opacity:0;
+    transition:opacity .15s; }
+  .sup .saved.show { opacity:1; }
+  .grp { border:1px solid #2a2f3a; border-radius:9px; padding:11px; margin:8px 0;
+    background:#13161e; }
+  .grp-h { display:flex; justify-content:space-between; color:#8a93a4;
+    font-size:12px; margin-bottom:6px; }
+  .or { text-align:center; color:#7a8497; font-weight:700; font-size:11px;
+    letter-spacing:.08em; margin:4px 0; }
+  .cond { display:flex; gap:7px; align-items:center; flex-wrap:wrap; padding:6px 0;
+    border-bottom:1px solid #20242e; }
+  .cond:last-of-type { border-bottom:0; }
+  .hint { color:#7a8497; font-size:11px; flex-basis:100%; margin-left:2px; }
+  .foot { display:flex; justify-content:space-between; align-items:center; gap:14px;
+    flex-wrap:wrap; margin-top:24px; padding-top:16px; border-top:1px solid #232734; }
+  .foot-btns { display:flex; gap:10px; align-items:center; margin-left:auto; }
+  .count { color:#8a93a4; font-size:12.5px; }
+  .count .ok { color:#f9a8d4; font-weight:600; }
+  .toast { padding:10px 12px; border-radius:8px; font-size:13px; margin-top:12px; }
+  .toast.e { background:#2a1518; border:1px solid #5c2630; color:#f6b8c0; }
+  @media (max-width:560px){
+    body{ padding:16px 14px; } h1{ font-size:17px; }
+    .opts{ grid-template-columns:1fr; } .sup .vp{ grid-template-columns:1fr; }
+    .foot{ gap:10px; } .count{ flex:1 1 100%; order:1; }
+    .foot-btns{ order:2; width:100%; margin-left:0; }
+    .foot-btns>button{ flex:1 1 0; }
+    .cond>select,.cond>.vw{ flex:1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<div id="app"><p class="sub">Loading…</p></div>
+
+<script>
+const BASE_URL="__BASE_URL__", GUILD_ID="__GUILD_ID__", ROLE_ID="__ROLE_ID__";
+const IFRAME_TOKEN="__IFRAME_TOKEN__", IS_EMBEDDED=!!IFRAME_TOKEN;
+const VERIFY_URL=BASE_URL+"/verify";
+
+function postToHost(m){ if(!IS_EMBEDDED) return; try{ parent.postMessage(m,'*'); }catch(_){} }
+function postHeight(){ postToHost({type:'rl:resize',height:Math.max(
+  document.documentElement.scrollHeight,document.body.scrollHeight)}); }
+const postDirty=d=>postToHost({type:'rl:dirty',dirty:!!d});
+const postSaved=()=>postToHost({type:'rl:saved'});
+const postToast=(m,k)=>postToHost({type:'rl:toast',message:String(m||''),kind:k||'error'});
+if(IS_EMBEDDED&&'ResizeObserver'in window) new ResizeObserver(postHeight).observe(document.body);
+window.addEventListener('load',postHeight);
+
+function apiHeaders(x){ const h=Object.assign({'Content-Type':'application/json'},x||{});
+  if(IFRAME_TOKEN) h['Authorization']='Bearer '+IFRAME_TOKEN; return h; }
+function apiCreds(){ return IS_EMBEDDED?'omit':'include'; }
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function cap(s){ return String(s||'').replace(/^./,c=>c.toUpperCase()); }
+const MONTHS=["January","February","March","April","May","June","July","August",
+  "September","October","November","December"];
+
+function copyText(t){
+  const fb=()=>{ try{ const a=document.createElement('textarea'); a.value=t;
+    a.setAttribute('readonly',''); a.style.position='fixed'; a.style.opacity='0';
+    document.body.appendChild(a); a.select(); const ok=document.execCommand('copy');
+    document.body.removeChild(a); return ok; }catch(_){ return false; } };
+  if(navigator.clipboard&&navigator.clipboard.writeText)
+    return navigator.clipboard.writeText(t).then(()=>true,()=>fb());
+  return Promise.resolve(fb());
+}
+function wireCopy(id,t){ const b=document.getElementById(id); if(!b) return;
+  b.addEventListener('click',()=>copyText(t).then(ok=>{
+    b.textContent=ok?'Copied ✓':'Press Ctrl+C';
+    setTimeout(()=>b.textContent='Copy link',1500); })); }
+
+let state=null, dirty=false, refreshInFlight=false, supPending=false;
+function setDirty(d){ dirty=d; postDirty(d);
+  const s=document.getElementById('save'); if(s) s.disabled=!d; }
+function ruleKey(c){ return JSON.stringify({
+  g:!!c.grant_on_any_birthday, r:c.grant_on_any_birthday?[]:(c.groups||[]) }); }
+function recomputeDirty(){
+  if(!state||!state._edit||!state.config) return;
+  setDirty(ruleKey(state._edit)!==ruleKey(state.config)); }
+
+function c(t,o,v,ve){ return {target:t,operator:o,value:v,value_end:ve??null}; }
+
+/* ---- presets (newbie-friendly) ---- */
+function presets(){ return [
+ {id:"anyone", t:"Anyone who added a birthday", d:"Simplest. Everyone who saved a birthday gets the role."},
+ {id:"today",  t:"On their birthday 🎂", d:"Role appears on their day (their timezone) and is removed after."},
+ {id:"week",   t:"Birthday week", d:"Anyone whose birthday is within the next 7 days."},
+ {id:"month",  t:"Birthday month", d:"Anyone whose birthday is in the current month."},
+ {id:"zodiac", t:"By zodiac sign", d:"People born under the signs you pick."},
+ {id:"months", t:"Born in certain months", d:"e.g. a “Summer babies” role for Jun–Aug."},
+ {id:"age",    t:"Minimum age", d:"Self-reported — needs them to share a birth year."},
+ {id:"custom", t:"Advanced rule", d:"Combine any conditions with AND / OR."},
+];}
+
+function detectPreset(cfg){
+  if(cfg.grant_on_any_birthday) return 'anyone';
+  const g=cfg.groups||[];
+  if(g.length===0) return 'anyone_unset';
+  if(g.length===1){ const cs=g[0].conditions||[];
+    const onlyBool=t=>cs.length===1&&cs[0].target===t&&cs[0].operator==='eq'&&cs[0].value===true;
+    if(onlyBool('is_birthday_today')) return 'today';
+    if(onlyBool('is_birthday_week'))  return 'week';
+    if(onlyBool('is_birthday_month')) return 'month';
+    if(cs.length===1&&cs[0].target==='zodiac_sign'&&cs[0].operator==='in') return 'zodiac';
+    if(cs.length===1&&cs[0].target==='birth_month'&&cs[0].operator==='in') return 'months';
+    if(cs.length===1&&cs[0].target==='age_years'&&cs[0].operator==='gte') return 'age';
+  }
+  return 'custom';
+}
+function seedSelections(cfg){
+  state._z = ['aries']; state._m = [6,7,8]; state._age = 18;
+  try{
+    const cs=cfg.groups[0].conditions[0];
+    if(cs.target==='zodiac_sign'&&Array.isArray(cs.value)&&cs.value.length) state._z=cs.value.slice();
+    if(cs.target==='birth_month'&&Array.isArray(cs.value)&&cs.value.length) state._m=cs.value.map(Number);
+    if(cs.target==='age_years') state._age=Number(cs.value)||18;
+  }catch(_){}
+}
+function buildPreset(id){
+  if(id==='anyone') return {grant:true,groups:[]};
+  const G=cs=>({grant:false,groups:[{conditions:cs}]});
+  if(id==='today')  return G([c('is_birthday_today','eq',true)]);
+  if(id==='week')   return G([c('is_birthday_week','eq',true)]);
+  if(id==='month')  return G([c('is_birthday_month','eq',true)]);
+  if(id==='zodiac') return G([c('zodiac_sign','in',state._z.slice())]);
+  if(id==='months') return G([c('birth_month','in',state._m.slice())]);
+  if(id==='age')    return G([c('age_years','gte',Number(state._age)||18)]);
+  return null; // custom handled in applyPreset
+}
+
+async function load(){
+  try{
+    const r=await fetch(`${BASE_URL}/admin/${GUILD_ID}/role/${ROLE_ID}/data`,
+      {headers:apiHeaders(),credentials:apiCreds(),cache:'no-store'});
+    if(!r.ok){ const e=await r.json().catch(()=>({error:r.status}));
+      document.getElementById('app').innerHTML=`<div class="toast e">${esc(e.error||('HTTP '+r.status))}</div>`;
+      postHeight(); return; }
+    state=await r.json();
+    state._edit=JSON.parse(JSON.stringify(state.config));
+    seedSelections(state._edit);
+    state._preset=detectPreset(state._edit);
+    // Fresh role link: groups [] + grant false = "grant nobody" sentinel.
+    // Show "anyone" pre-selected and align the edit buffer so one Save
+    // applies that sensible default instead of re-persisting the sentinel.
+    if(state._preset==='anyone_unset'){
+      state._edit.grant_on_any_birthday=true; state._edit.groups=[];
+      state._preset='anyone'; recomputeDirty();
+    }
+    render(); autoPreview();
+  }catch(e){ document.getElementById('app').innerHTML=
+    `<div class="toast e">Network error: ${esc(String(e))}</div>`; }
+}
+
+function targetByKey(k){ return state.targets.find(t=>t.key===k); }
+function opByKey(k){ return state.operators.find(o=>o.key===k); }
+function opsForKind(k){ return state.operators.filter(o=>o.valid_for[k]); }
+
+function render(){
+  const cfg=state._edit, app=document.getElementById('app');
+  const cur=state._preset;
+  const opts=presets().map(p=>{
+    const on=(cur===p.id);
+    return `<label class="opt ${on?'sel':''}">
+      <input type="radio" name="who" value="${p.id}" ${on?'checked':''}>
+      <div><div class="t">${esc(p.t)}</div><div class="d">${esc(p.d)}</div></div></label>`;
+  }).join('');
+
+  let extra='';
+  if(cur==='zodiac'){
+    const all=(state.value_options&&state.value_options.zodiac)||[];
+    extra=`<div class="extra"><div class="inline">Pick the zodiac signs that get this role:
+      <div class="chips" id="zchips">${all.map(z=>`
+        <label class="ck ${state._z.includes(z)?'on':''}"><input type="checkbox" value="${z}"
+          ${state._z.includes(z)?'checked':''}>${cap(z)}</label>`).join('')}</div></div></div>`;
+  } else if(cur==='months'){
+    extra=`<div class="extra"><div class="inline">Pick the birth months:
+      <div class="chips" id="mchips">${MONTHS.map((m,i)=>`
+        <label class="ck ${state._m.includes(i+1)?'on':''}"><input type="checkbox" value="${i+1}"
+          ${state._m.includes(i+1)?'checked':''}>${m}</label>`).join('')}</div></div></div>`;
+  } else if(cur==='age'){
+    extra=`<div class="extra"><div class="inline">Minimum age:
+      <input type="number" id="agen" min="1" max="120" value="${state._age}"> years
+      <div style="color:#8a93a4;font-size:11.5px;margin-top:6px">Self-reported. Members
+      who didn't share a birth year won't match.</div></div></div>`;
+  } else if(cur==='custom'){
+    extra=`<div class="extra"><div id="rule"></div></div>`;
+  }
+
+  const sup=state.users||{url:'',view_permission:'managers'};
+  const vp=sup.view_permission||'managers';
+  const vpOpts=[
+    {id:'disabled',t:'Disabled',d:'No one can view the birthdays page.'},
+    {id:'managers',t:'Server managers',d:'Only members with Manage Server.'},
+    {id:'members', t:'All server members',d:'Anyone in this server can view.'},
+  ];
+  const usersBlk=`<div class="sup">
+    <b>Public birthdays page</b><span id="vp-saved" class="saved">Saved ✓</span>
+    <div style="margin-top:4px;color:#8a93a4;font-size:12.5px">A friendly,
+      searchable list of upcoming birthdays in this server. Ages are hidden
+      unless the member opts in.</div>
+    ${vp!=='disabled'?`<div class="copybox" style="margin-top:9px">
+      <code>${esc(sup.url)}</code>
+      <a class="btn-open" href="${esc(sup.url)}" target="_blank" rel="noopener noreferrer">Open</a>
+      <button id="copysup">Copy link</button></div>`:''}
+    <div class="vp">${vpOpts.map(o=>`<label class="${o.id===vp?'sel':''}">
+      <input type="radio" name="vp" value="${o.id}" ${o.id===vp?'checked':''}>
+      <div><div class="t">${esc(o.t)}</div><div class="d">${esc(o.d)}</div></div></label>`).join('')}</div>
+  </div>`;
+
+  app.innerHTML=`
+    <h1>🎂 Birthday Role</h1>
+    <p class="sub">Hand this Discord role out automatically from members' birthdays.</p>
+    <div class="q">Who should get this role?</div>
+    <div class="opts">${opts}</div>
+    ${extra}
+    <div class="share"><b>One thing your members must do:</b> add their birthday once
+      here — until they do, they won't get the role.
+      <div class="copybox"><code>${esc(VERIFY_URL)}</code>
+        <a class="btn-open" href="${esc(VERIFY_URL)}" target="_blank" rel="noopener noreferrer">Open</a>
+        <button id="copyv">Copy link</button></div>
+    </div>
+    ${usersBlk}
+    <div class="foot">
+      <span class="count" id="count"></span>
+      <div class="foot-btns">
+        <button id="preview">Preview</button>
+        <button id="save" class="primary" ${dirty?'':'disabled'}>Save</button>
+      </div>
+    </div>`;
+
+  app.querySelectorAll('input[name=who]').forEach(r=>r.addEventListener('change',()=>choose(r.value)));
+  wireCopy('copyv',VERIFY_URL);
+  wireCopy('copysup',sup.url);
+  app.querySelectorAll('input[name=vp]').forEach(r=>r.addEventListener('change',()=>setViewPerm(r.value)));
+  const zc=document.getElementById('zchips');
+  if(zc) zc.querySelectorAll('input').forEach(i=>i.addEventListener('change',()=>{
+    state._z=[...zc.querySelectorAll('input:checked')].map(x=>x.value);
+    applyPreset('zodiac'); render(); }));
+  const mc=document.getElementById('mchips');
+  if(mc) mc.querySelectorAll('input').forEach(i=>i.addEventListener('change',()=>{
+    state._m=[...mc.querySelectorAll('input:checked')].map(x=>Number(x.value));
+    applyPreset('months'); render(); }));
+  const an=document.getElementById('agen');
+  if(an) an.addEventListener('input',e=>{ state._age=Math.max(1,Number(e.target.value)||1);
+    applyPreset('age'); });
+  document.getElementById('save').addEventListener('click',doSave);
+  document.getElementById('preview').addEventListener('click',doPreviewEdit);
+  if(cur==='custom') renderRule();
+  postHeight();
+}
+
+function choose(id){ state._preset=id; applyPreset(id); render(); }
+function applyPreset(id){
+  if(id==='custom'){
+    state._edit.grant_on_any_birthday=false;
+    if(!state._edit.groups||state._edit.groups.length===0)
+      state._edit.groups=[{conditions:[c('is_birthday_today','eq',true)]}];
+  } else {
+    const p=buildPreset(id); if(!p) return;
+    state._edit.grant_on_any_birthday=p.grant;
+    state._edit.groups=p.groups;
+  }
+  recomputeDirty();
+}
+
+/* ---- advanced builder ---- */
+function valOptions(t){ const k=t&&t.options_key;
+  return (k&&state.value_options&&state.value_options[k])||null; }
+function renderRule(){
+  const box=document.getElementById('rule'); if(!box) return;
+  const cfg=state._edit;
+  if(!cfg.groups||cfg.groups.length===0)
+    cfg.groups=[{conditions:[c('is_birthday_today','eq',true)]}];
+  box.innerHTML=`<p style="color:#8a93a4;font-size:12px;margin:8px 0">Matches if a
+    member satisfies <b>any</b> group. Within a group, <b>all</b> conditions
+    must be true.</p>`+
+    cfg.groups.map((g,gi)=>`
+    ${gi>0?'<div class="or">— OR —</div>':''}
+    <div class="grp" data-g="${gi}">
+      <div class="grp-h"><span>Group ${gi+1} — all true</span>
+        <button class="x" data-dg="${gi}">remove</button></div>
+      ${g.conditions.map((cc,ci)=>condRow(cc,gi,ci)).join('')}
+      <button data-ac="${gi}" style="margin-top:6px">+ condition</button>
+    </div>`).join('')+`<button id="ag" style="margin-top:8px">+ OR group</button>`;
+  box.querySelectorAll('[data-dg]').forEach(b=>b.onclick=()=>{
+    cfg.groups.splice(+b.dataset.dg,1); recomputeDirty(); renderRule(); postHeight(); });
+  box.querySelectorAll('[data-ac]').forEach(b=>b.onclick=()=>{
+    cfg.groups[+b.dataset.ac].conditions.push(c('is_birthday_today','eq',true));
+    recomputeDirty(); renderRule(); postHeight(); });
+  const ag=document.getElementById('ag'); if(ag) ag.onclick=()=>{
+    if(cfg.groups.length>=state.limits.max_groups){ postToast(`Max ${state.limits.max_groups} groups.`); return; }
+    cfg.groups.push({conditions:[c('is_birthday_today','eq',true)]});
+    recomputeDirty(); renderRule(); postHeight(); };
+  box.querySelectorAll('[data-cond]').forEach(wireCond);
+}
+function condRow(cc,gi,ci){
+  const tgt=targetByKey(cc.target)||state.targets[0];
+  const grps=[...new Set(state.targets.map(t=>t.group))];
+  const gl={when:'Timing',date:'Date',age:'Age / year',presence:'Presence',calendar:'Calendar'};
+  const tsel=grps.map(g=>`<optgroup label="${gl[g]||g}">`+
+    state.targets.filter(t=>t.group===g).map(t=>
+      `<option value="${t.key}" ${t.key===cc.target?'selected':''}>${esc(t.label)}</option>`).join('')
+    +`</optgroup>`).join('');
+  let mid;
+  if(tgt.kind==='bool'){ const m=cc.value===true||cc.value==='true';
+    mid=`<select class="bv"><option value="1" ${m?'selected':''}>is true</option>
+      <option value="0" ${!m?'selected':''}>is false</option></select>`;
+  } else { const ops=opsForKind(tgt.kind);
+    mid=`<select class="o">${ops.map(o=>`<option value="${o.key}" ${o.key===cc.operator?'selected':''}>${esc(o.label)}</option>`).join('')}</select><span class="vw">${valWidget(tgt,cc)}</span>`; }
+  return `<div class="cond" data-cond data-g="${gi}" data-c="${ci}">
+    <select class="t">${tsel}</select>${mid}
+    <button class="x" data-del>×</button></div>`;
+}
+function valWidget(tgt,cc){ const op=opByKey(cc.operator)||{};
+  const opts=valOptions(tgt);
+  if(op.value_is_list){
+    if(opts) return `<input type="text" class="v" placeholder="${opts.slice(0,3).join(', ')}…"
+      value="${esc(Array.isArray(cc.value)?cc.value.join(', '):'')}">`;
+    return `<input type="text" class="v" placeholder="comma,separated"
+      value="${esc(Array.isArray(cc.value)?cc.value.join(', '):'')}">`;
+  }
+  if(op.needs_value_end) return `<input type="number" class="v" placeholder="min" value="${cc.value??''}">
+    and <input type="number" class="ve" placeholder="max" value="${cc.value_end??''}">`;
+  if(opts) return `<select class="v">${opts.map(o=>
+    `<option value="${o}" ${String(cc.value)===o?'selected':''}>${cap(o)}</option>`).join('')}</select>`;
+  if(tgt.kind==='int') return `<input type="number" class="v" value="${cc.value??''}">`;
+  return `<input type="text" class="v" value="${esc(cc.value==null?'':cc.value)}">`; }
+function wireCond(row){
+  const gi=+row.dataset.g, ci=+row.dataset.c, cfg=state._edit, cc=cfg.groups[gi].conditions[ci];
+  row.querySelector('.t').onchange=e=>{ cc.target=e.target.value; const t=targetByKey(cc.target);
+    if(t.kind==='bool'){ cc.operator='eq'; cc.value=true; }
+    else { const v=opsForKind(t.kind); if(!v.find(x=>x.key===cc.operator)) cc.operator=v[0].key;
+      const opts=valOptions(t); cc.value=opts?opts[0]:''; }
+    cc.value_end=null; recomputeDirty(); renderRule(); postHeight(); };
+  const bv=row.querySelector('.bv'); if(bv) bv.onchange=e=>{ cc.operator='eq';
+    cc.value=e.target.value==='1'; recomputeDirty(); };
+  const o=row.querySelector('.o'); if(o) o.onchange=e=>{ cc.operator=e.target.value;
+    cc.value_end=null; recomputeDirty(); renderRule(); postHeight(); };
+  row.querySelectorAll('.v,.ve').forEach(inp=>inp.oninput=()=>{
+    const t=targetByKey(cc.target),op=opByKey(cc.operator)||{};
+    if(inp.classList.contains('ve')) cc.value_end=inp.value===''?null:Number(inp.value);
+    else if(op.value_is_list) cc.value=inp.value.split(',').map(s=>s.trim()).filter(Boolean);
+    else if(t.kind==='int') cc.value=inp.value===''?'':Number(inp.value);
+    else cc.value=inp.value; recomputeDirty(); });
+  const vsel=row.querySelector('select.v'); if(vsel) vsel.onchange=e=>{ cc.value=e.target.value; recomputeDirty(); };
+  row.querySelector('[data-del]').onclick=()=>{ cfg.groups[gi].conditions.splice(ci,1);
+    if(cfg.groups[gi].conditions.length===0) cfg.groups.splice(gi,1);
+    if(cfg.groups.length===0) cfg.groups=[{conditions:[c('is_birthday_today','eq',true)]}];
+    recomputeDirty(); renderRule(); postHeight(); };
+}
+
+async function setViewPerm(next){
+  const prev=(state.users&&state.users.view_permission)||'managers';
+  if(next===prev) return;
+  if(!state.users) state.users={url:'',view_permission:prev};
+  state.users.view_permission=next; supPending=true; render();
+  try{
+    const r=await fetch(`${BASE_URL}/admin/${GUILD_ID}/view-permission`,
+      {method:'POST',headers:apiHeaders(),credentials:apiCreds(),
+       body:JSON.stringify({view_permission:next})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){ state.users.view_permission=prev; render();
+      postToast(d.error||'Could not update view permission.'); return; }
+    render(); const pill=document.getElementById('vp-saved');
+    if(pill){ pill.classList.add('show'); clearTimeout(setViewPerm._t);
+      setViewPerm._t=setTimeout(()=>pill.classList.remove('show'),1800); }
+  }catch(e){ state.users.view_permission=prev; render(); postToast('Network error: '+e); }
+  finally{ supPending=false; }
+}
+
+function previewPayload(){ const c=state._edit;
+  return { grant_on_any_birthday:c.grant_on_any_birthday,
+    groups: c.grant_on_any_birthday?[]:(c.groups||[]) }; }
+async function doPreview(){
+  const el=document.getElementById('count'); if(!el) return;
+  try{
+    const r=await fetch(`${BASE_URL}/admin/${GUILD_ID}/role/${ROLE_ID}/preview`,
+      {headers:apiHeaders(),credentials:apiCreds(),cache:'no-store'});
+    const d=await r.json();
+    if(!r.ok||d.available===false){ el.textContent=''; return; }
+    el.innerHTML=`<span class="ok">${d.matching}</span> of ${d.linked} member(s) with a birthday match`
+      +(dirty?` · <span style="color:#fbbf24">Save to apply</span>`:``);
+  }catch(_){ el.textContent=''; }
+  postHeight();
+}
+function autoPreview(){ doPreview(); }
+async function doPreviewEdit(){
+  const el=document.getElementById('count'), btn=document.getElementById('preview');
+  if(!btn) return;
+  btn.disabled=true; const o=btn.textContent; btn.textContent='Previewing…';
+  try{
+    const r=await fetch(`${BASE_URL}/admin/${GUILD_ID}/role/${ROLE_ID}/preview`,
+      {method:'POST',headers:apiHeaders(),credentials:apiCreds(),
+       body:JSON.stringify(previewPayload())});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){ postToast(d.error||('Preview failed (HTTP '+r.status+')')); return; }
+    if(d.available===false){ el.textContent=d.reason||'Preview unavailable.'; postHeight(); return; }
+    el.innerHTML=`<span class="ok">${d.matching}</span> of ${d.linked} member(s) with a birthday match`
+      +(dirty?` · <span style="color:#fbbf24">Preview of unsaved rule</span>`:``);
+  }catch(e){ postToast('Network error: '+e); }
+  finally{ btn.disabled=false; btn.textContent=o; postHeight(); }
+}
+async function doSave(){
+  const payload=Object.assign({rule_tree_version:state.rule_tree_version},previewPayload());
+  try{
+    const r=await fetch(`${BASE_URL}/admin/${GUILD_ID}/role/${ROLE_ID}/save`,
+      {method:'POST',headers:apiHeaders(),credentials:apiCreds(),body:JSON.stringify(payload)});
+    const d=await r.json().catch(()=>({}));
+    if(r.status===409){ postToast('Changed in another tab. Reload to get the latest, then re-apply.'); return; }
+    if(!r.ok){ postToast(d.error||('Save failed (HTTP '+r.status+')')); return; }
+    state.rule_tree_version=d.rule_tree_version;
+    state.config=JSON.parse(JSON.stringify(state._edit));
+    setDirty(false); postSaved();
+    postToast('Saved ✓  Roles update within a few minutes — make sure members add their birthday using the link above.','success');
+    autoPreview();
+  }catch(e){ postToast('Network error: '+e); }
+}
+
+async function refreshFromServer(){
+  if(!state||refreshInFlight) return; refreshInFlight=true;
+  try{
+    const r=await fetch(`${BASE_URL}/admin/${GUILD_ID}/role/${ROLE_ID}/data`,
+      {headers:apiHeaders(),credentials:apiCreds(),cache:'no-store'});
+    if(r.ok){ const d=await r.json();
+      const cfgCh=JSON.stringify(d.config)!==JSON.stringify(state.config);
+      const supCh=JSON.stringify(d.users)!==JSON.stringify(state.users);
+      const applySup=supCh&&!supPending;
+      if(applySup) state.users=d.users;
+      if(cfgCh&&!dirty){ state.config=d.config;
+        state._edit=JSON.parse(JSON.stringify(d.config));
+        state.rule_tree_version=d.rule_tree_version;
+        seedSelections(state._edit); state._preset=detectPreset(state._edit);
+        if(state._preset==='anyone_unset'){ state._edit.grant_on_any_birthday=true;
+          state._edit.groups=[]; state._preset='anyone'; recomputeDirty(); } }
+      if(applySup||(cfgCh&&!dirty)){ render(); autoPreview(); } }
+  }catch(_){}
+  finally{ refreshInFlight=false; }
+}
+window.addEventListener('message',e=>{ if(e.data&&e.data.type==='rl:visible') refreshFromServer(); });
+window.addEventListener('focus',refreshFromServer);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden) refreshFromServer(); });
+if(!IS_EMBEDDED) window.addEventListener('beforeunload',e=>{ if(dirty){ e.preventDefault(); e.returnValue=''; } });
+
+load();
+</script>
+</body>
+</html>

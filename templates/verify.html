@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add your birthday</title>
+<link rel="icon" href="{{BASE_URL}}/favicon.ico">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    background:#0f1115; color:#e8eaed; margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:20px 16px; line-height:1.55;
+  }
+  .card { width:100%; max-width:480px; padding:30px 26px; background:#1a1d24;
+    border:1px solid #2a2f3a; border-radius:14px; }
+  h1 { margin:0 0 6px; font-size:22px; }
+  .lead { color:#aeb4c0; margin:0 0 20px; font-size:14px; }
+  p { color:#b8bcc6; margin:8px 0; font-size:14px; }
+  .muted { font-size:12px; color:#7a8497; margin-top:16px; }
+  .pill { background:#0b0d12; padding:8px 12px; border-radius:999px;
+    font-size:13px; color:#c1cbd9; display:inline-block; overflow-wrap:anywhere; }
+  .pill.ok { color:#7fe0b0; }
+  label.fld { display:block; font-weight:600; font-size:13px; margin:14px 0 6px; }
+  select, input[type=number], input[type=text] {
+    width:100%; background:#0b0d12; color:#e8eaed; border:1px solid #2a2f3a;
+    border-radius:8px; padding:10px 11px; font-size:15px; }
+  select:focus, input:focus { outline:2px solid #f0a; outline-color:#ec4899; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .opt { display:flex; gap:9px; align-items:flex-start; margin-top:12px;
+    background:#13161e; border:1px solid #262b36; border-radius:9px; padding:10px 12px; }
+  .opt input { width:auto; margin:2px 0 0; accent-color:#ec4899; }
+  .opt .t { font-weight:600; font-size:13px; }
+  .opt .d { color:#8a93a4; font-size:11.5px; margin-top:2px; }
+  button, a.btn {
+    background:#ec4899; color:#fff; border:0; padding:12px 20px; font-weight:700;
+    border-radius:9px; cursor:pointer; text-decoration:none; display:inline-block;
+    font-size:15px; font-family:inherit; }
+  button:hover { background:#db2777; }
+  button:disabled { opacity:.55; cursor:not-allowed; }
+  .btn-secondary { background:#2a2f3a; color:#e8eaed; }
+  .btn-secondary:hover { background:#363c49; }
+  .btn-danger { background:#3a2030; color:#fca5a5; }
+  .btn-danger:hover { background:#4a2636; }
+  .full { display:block; width:100%; margin-top:18px; }
+  .summary { background:#191325; border:1px solid #3b2a4f; border-radius:10px;
+    padding:14px 15px; margin:16px 0; font-size:13.5px; color:#d9c9ef; }
+  .summary b { color:#f3e8ff; }
+  .chips { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
+  .chip { background:#0b0d12; border:1px solid #2a2f3a; border-radius:999px;
+    padding:5px 11px; font-size:12px; color:#cbd5e1; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+  .row .full { margin-top:0; }
+  .logout-row { margin-top:18px; }
+  .logout-form { display:inline; margin:0; }
+  button.logout { background:none; color:#8a93a4; border:1px solid #2a2f3a;
+    padding:7px 12px; border-radius:7px; font-size:12px; font-weight:600; }
+  button.logout:hover { color:#fca5a5; border-color:#5c2630; }
+  .err { background:#2a1518; border:1px solid #5c2630; color:#f6b8c0;
+    border-radius:8px; padding:10px 12px; font-size:13px; margin-top:14px; display:none; }
+  .err.show { display:block; }
+  #step-loading,#step-discord,#step-form,#step-done { display:none; }
+  .shown { display:block !important; }
+  @media (max-width:480px){ .card{ padding:22px 18px; } h1{ font-size:19px; } }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🎂 Add your birthday</h1>
+  <p class="lead">Tell the server your birthday once and it will hand you the
+    birthday roles automatically — on the day, the month, your zodiac, and more.
+    You stay in control of what's shared.</p>
+
+  <div id="step-loading"><p class="muted">Loading…</p></div>
+
+  <div id="step-discord">
+    <p><span class="pill">Step 1 — Sign in with Discord</span></p>
+    <p>You'll go to Discord's login, approve once, and come right back here.</p>
+    <form method="post" action="{{BASE_URL}}/verify/login">
+      <button type="submit" class="full">Sign in with Discord</button>
+    </form>
+  </div>
+
+  <div id="step-form">
+    <p><span class="pill ok">✓ Signed in as <span id="dname"></span></span></p>
+
+    <label class="fld" for="month">Birth month</label>
+    <select id="month"></select>
+
+    <label class="fld" for="day">Birth day</label>
+    <select id="day"></select>
+
+    <label class="fld" for="year">Birth year <span style="color:#7a8497;font-weight:400">(optional — only needed for age roles)</span></label>
+    <input id="year" type="number" inputmode="numeric" placeholder="e.g. 1998" min="1900">
+
+    <label class="fld" for="tz">Your timezone <span style="color:#7a8497;font-weight:400">(so the birthday role lands on YOUR day)</span></label>
+    <select id="tz"></select>
+
+    <label class="opt">
+      <input type="checkbox" id="show_year">
+      <div><div class="t">Show my age on the public birthdays list</div>
+        <div class="d">Off by default. The month &amp; day are always shown; the
+          year/age is only listed if you tick this.</div></div>
+    </label>
+
+    <div id="err1" class="err"></div>
+    <button id="save" class="full">Save my birthday</button>
+    <div class="logout-row">
+      <form class="logout-form" method="POST" action="/auth/logout">
+        <button type="submit" class="logout">Sign out of Discord</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="step-done">
+    <p><span class="pill ok">✓ Birthday saved</span></p>
+    <div class="summary" id="summary"></div>
+    <p class="muted">Roles update automatically within a few minutes — and again
+      every day as your birthday gets closer. Nothing else to do! 🎉</p>
+    <div class="row">
+      <button id="edit" class="btn-secondary full" style="flex:1">Edit my birthday</button>
+      <button id="remove" class="btn-danger full" style="flex:1">Remove it</button>
+    </div>
+    <div id="err2" class="err"></div>
+    <div class="logout-row">
+      <form class="logout-form" method="POST" action="/auth/logout">
+        <button type="submit" class="logout">Sign out of Discord</button>
+      </form>
+    </div>
+  </div>
+
+  <p class="muted">We only store the birthday you type here. We never ask Discord
+    or anyone else for it. You can edit or remove it any time.</p>
+</div>
+
+<script>
+const API = "{{BASE_URL}}";
+const MONTHS = ["January","February","March","April","May","June","July",
+  "August","September","October","November","December"];
+let editing = false;
+
+function show(id){
+  ["step-loading","step-discord","step-form","step-done"]
+    .forEach(s=>document.getElementById(s).classList.toggle('shown', s===id));
+}
+function err(id,msg){ const e=document.getElementById(id);
+  e.textContent=msg; e.classList.toggle('show',!!msg); }
+
+function fillMonths(sel){
+  document.getElementById('month').innerHTML =
+    MONTHS.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
+  if(sel) document.getElementById('month').value=sel;
+  fillDays();
+}
+function fillDays(sel){
+  const m=Number(document.getElementById('month').value)||1;
+  const y=Number(document.getElementById('year').value)||2000; // leap-safe default
+  const dim=[31, (y%4===0&&(y%100!==0||y%400===0))?29:28,31,30,31,30,31,31,30,31,30,31][m-1];
+  const cur=sel||Number(document.getElementById('day').value)||1;
+  document.getElementById('day').innerHTML =
+    Array.from({length:dim},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('');
+  document.getElementById('day').value=Math.min(cur,dim);
+}
+function fillTz(sel){
+  const tzSel=document.getElementById('tz');
+  let zones=[];
+  try{ if(Intl.supportedValuesOf) zones=Intl.supportedValuesOf('timeZone'); }catch(_){}
+  if(!zones.length) zones=["UTC","America/New_York","America/Chicago","America/Denver",
+    "America/Los_Angeles","America/Sao_Paulo","Europe/London","Europe/Berlin",
+    "Europe/Moscow","Africa/Cairo","Asia/Kolkata","Asia/Dubai","Asia/Singapore",
+    "Asia/Tokyo","Asia/Shanghai","Australia/Sydney","Pacific/Auckland"];
+  if(!zones.includes("UTC")) zones.unshift("UTC");
+  let guess="UTC";
+  try{ guess=Intl.DateTimeFormat().resolvedOptions().timeZone||"UTC"; }catch(_){}
+  const want = sel || guess;
+  if(want && !zones.includes(want)) zones.unshift(want);
+  tzSel.innerHTML = zones.map(z=>`<option value="${z}">${z}</option>`).join('');
+  tzSel.value = zones.includes(want) ? want : "UTC";
+}
+
+async function refresh(){
+  show('step-loading');
+  let data;
+  try{
+    data = await (await fetch(API+'/verify/status',
+      {credentials:'include',cache:'no-store'})).json();
+  }catch(e){ show('step-discord'); return; }
+
+  if(!data.signed_in_discord){ show('step-discord'); return; }
+  document.getElementById('dname').textContent = data.discord_username||'';
+
+  if(data.has_birthday && !editing){
+    const b=data.birthday;
+    const parts=[];
+    parts.push(`<b>${MONTHS[b.month-1]} ${b.day}</b>${b.year?(' '+b.year):''}`);
+    let line = b.is_today ? '🎉 It\'s your birthday today!'
+      : (b.days_until===1 ? 'Tomorrow is your birthday!'
+      : `${b.days_until} day${b.days_until===1?'':'s'} until your next birthday`);
+    const chips=[];
+    if(b.zodiac) chips.push(cap(b.zodiac));
+    if(b.chinese_zodiac) chips.push('Year of the '+cap(b.chinese_zodiac));
+    if(b.season) chips.push(cap(b.season));
+    if(b.birthstone) chips.push(cap(b.birthstone)+' birthstone');
+    if(b.weekday) chips.push('Born on a '+cap(b.weekday));
+    if(b.age!=null) chips.push('Age '+b.age);
+    document.getElementById('summary').innerHTML =
+      parts.join('') + `<div style="margin-top:6px;color:#b8a9d0">${line}</div>`+
+      `<div class="chips">${chips.map(c=>`<span class="chip">${c}</span>`).join('')}</div>`+
+      `<div style="margin-top:8px;color:#8a93a4;font-size:12px">Timezone: ${b.tz}`+
+      `${b.show_year?'':' · age hidden on the public list'}</div>`;
+    show('step-done');
+    return;
+  }
+
+  // form (new or editing)
+  const b = data.birthday || {};
+  fillMonths(b.month);
+  document.getElementById('year').value = b.year || '';
+  fillDays(b.day);
+  fillTz(b.tz);
+  document.getElementById('show_year').checked = !!b.show_year;
+  err('err1','');
+  show('step-form');
+}
+function cap(s){ return String(s||'').replace(/^./,c=>c.toUpperCase()); }
+
+document.addEventListener('change',e=>{
+  if(e.target.id==='month'||e.target.id==='year') fillDays();
+});
+
+document.getElementById('save').addEventListener('click', async ()=>{
+  const btn=document.getElementById('save'); btn.disabled=true;
+  err('err1','');
+  const payload = {
+    month: Number(document.getElementById('month').value),
+    day: Number(document.getElementById('day').value),
+    year: document.getElementById('year').value ?
+      Number(document.getElementById('year').value) : null,
+    tz: document.getElementById('tz').value || 'UTC',
+    show_year: document.getElementById('show_year').checked,
+  };
+  try{
+    const r=await fetch(API+'/verify/save',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){ err('err1', d.error || ('Could not save (HTTP '+r.status+')')); btn.disabled=false; return; }
+    editing=false; refresh();
+  }catch(e){ err('err1','Network error — please try again.'); btn.disabled=false; }
+});
+
+document.getElementById('edit').addEventListener('click',()=>{ editing=true; refresh(); });
+
+document.getElementById('remove').addEventListener('click', async ()=>{
+  if(!confirm('Remove your birthday? Any birthday roles it gave you will be taken away.')) return;
+  err('err2','');
+  try{
+    const r=await fetch(API+'/verify/unlink',{method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'}});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){ err('err2', d.error || 'Could not remove.'); return; }
+    editing=false; refresh();
+  }catch(e){ err('err2','Network error — please try again.'); }
+});
+
+// Logout forms post to the Auth Gateway on the same origin as BASE_URL,
+// returning the user back to /verify signed-out.
+(function(){
+  const u=new URL(API);
+  const a=u.origin+'/auth/logout?return_to='+encodeURIComponent(u.pathname+'/verify');
+  document.querySelectorAll('form.logout-form').forEach(f=>{ f.action=a; });
+})();
+
+refresh();
+</script>
+</body>
+</html>
