@@ -105,7 +105,6 @@
 <script>
 const BASE_URL="__BASE_URL__", GUILD_ID="__GUILD_ID__", ROLE_ID="__ROLE_ID__";
 const IFRAME_TOKEN="__IFRAME_TOKEN__", IS_EMBEDDED=!!IFRAME_TOKEN;
-const VERIFY_URL=BASE_URL+"/verify";
 
 function postToHost(m){ if(!IS_EMBEDDED) return; try{ parent.postMessage(m,'*'); }catch(_){} }
 function postHeight(){ postToHost({type:'rl:resize',height:Math.max(
@@ -257,6 +256,10 @@ function render(){
 
   const sup=state.users||{url:'',view_permission:'managers'};
   const vp=sup.view_permission||'managers';
+  // Per-guild verify URL (carries ?guild=<id> so a member who follows
+  // this link auto-enables Birthday roles for THIS server). Falls back to
+  // the plain /verify path if the server didn't send one.
+  const verifyUrl=state.verify_url||(BASE_URL+"/verify");
   const vpOpts=[
     {id:'disabled',t:'Disabled',d:'No one can view the birthdays page.'},
     {id:'managers',t:'Server managers',d:'Only members with Manage Server.'},
@@ -284,8 +287,8 @@ function render(){
     ${extra}
     <div class="share"><b>One thing your members must do:</b> add their birthday once
       here — until they do, they won't get the role.
-      <div class="copybox"><code>${esc(VERIFY_URL)}</code>
-        <a class="btn-open" href="${esc(VERIFY_URL)}" target="_blank" rel="noopener noreferrer">Open</a>
+      <div class="copybox"><code>${esc(verifyUrl)}</code>
+        <a class="btn-open" href="${esc(verifyUrl)}" target="_blank" rel="noopener noreferrer">Open</a>
         <button id="copyv">Copy link</button></div>
     </div>
     ${usersBlk}
@@ -298,7 +301,7 @@ function render(){
     </div>`;
 
   app.querySelectorAll('input[name=who]').forEach(r=>r.addEventListener('change',()=>choose(r.value)));
-  wireCopy('copyv',VERIFY_URL);
+  wireCopy('copyv',verifyUrl);
   wireCopy('copysup',sup.url);
   app.querySelectorAll('input[name=vp]').forEach(r=>r.addEventListener('change',()=>setViewPerm(r.value)));
   const zc=document.getElementById('zchips');
