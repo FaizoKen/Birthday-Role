@@ -207,6 +207,11 @@ pub async fn guild_permission(
 /// `guild_id`, authenticated with the viewer's `rl_session` cookie. The
 /// gateway only returns the list when the caller is themselves a member,
 /// which blocks arbitrary guild enumeration (BLUEPRINT §16.3).
+///
+/// Passes `plugin=birthday-role` so users who opted out of this plugin
+/// (or the whole guild) are stripped from the returned member set — the
+/// downstream JOIN against `birthdays` then naturally excludes them
+/// from the public birthdays list.
 pub async fn guild_members(
     state: &Arc<AppState>,
     jar: &CookieJar,
@@ -216,7 +221,7 @@ pub async fn guild_members(
     let cookie_val = forward_cookie(jar);
 
     let url = format!(
-        "{}/auth/guild_members?guild_id={guild_id}",
+        "{}/auth/guild_members?guild_id={guild_id}&plugin=birthday-role",
         state.config.auth_gateway_url
     );
     let resp = state
