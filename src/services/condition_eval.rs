@@ -203,7 +203,11 @@ mod tests {
 
     #[test]
     fn birthday_today_only_on_the_day() {
-        let t = one_group(vec![c(T::IsBirthdayToday, ConditionOperator::Eq, json!(true))]);
+        let t = one_group(vec![c(
+            T::IsBirthdayToday,
+            ConditionOperator::Eq,
+            json!(true),
+        )]);
         let mut f = facts();
         f.is_today = true;
         assert!(evaluate(&t, &f));

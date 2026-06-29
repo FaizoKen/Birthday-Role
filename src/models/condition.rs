@@ -173,7 +173,9 @@ impl ConditionOperator {
         use ConditionOperator::*;
         match kind {
             TargetKind::Bool => matches!(self, Eq),
-            TargetKind::Int => matches!(self, Eq | Neq | Gt | Gte | Lt | Lte | Between | In | NotIn),
+            TargetKind::Int => {
+                matches!(self, Eq | Neq | Gt | Gte | Lt | Lte | Between | In | NotIn)
+            }
             TargetKind::String => matches!(self, Eq | Neq | Contains | Regex | In | NotIn),
         }
     }

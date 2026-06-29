@@ -284,19 +284,28 @@ mod tests {
             grant_on_any_birthday: false,
             groups: vec![],
         };
-        assert!(matches!(parse_rule_tree(body), Err(AppError::BadRequest(_))));
+        assert!(matches!(
+            parse_rule_tree(body),
+            Err(AppError::BadRequest(_))
+        ));
     }
 
     #[test]
     fn rejects_unknown_target() {
         let body = one_group(vec![input("not_a_target", "eq", json!(true))]);
-        assert!(matches!(parse_rule_tree(body), Err(AppError::BadRequest(_))));
+        assert!(matches!(
+            parse_rule_tree(body),
+            Err(AppError::BadRequest(_))
+        ));
     }
 
     #[test]
     fn rejects_operator_target_mismatch() {
         let body = one_group(vec![input("is_birthday_today", "gt", json!(0))]);
-        assert!(matches!(parse_rule_tree(body), Err(AppError::BadRequest(_))));
+        assert!(matches!(
+            parse_rule_tree(body),
+            Err(AppError::BadRequest(_))
+        ));
     }
 
     #[test]
@@ -312,7 +321,10 @@ mod tests {
     #[test]
     fn int_in_rejects_non_numbers() {
         let body = one_group(vec![input("birth_month", "in", json!(["june"]))]);
-        assert!(matches!(parse_rule_tree(body), Err(AppError::BadRequest(_))));
+        assert!(matches!(
+            parse_rule_tree(body),
+            Err(AppError::BadRequest(_))
+        ));
     }
 
     #[test]
@@ -333,7 +345,10 @@ mod tests {
             value: json!(18),
             value_end: None,
         }]);
-        assert!(matches!(parse_rule_tree(body), Err(AppError::BadRequest(_))));
+        assert!(matches!(
+            parse_rule_tree(body),
+            Err(AppError::BadRequest(_))
+        ));
     }
 
     #[test]
@@ -363,6 +378,9 @@ mod tests {
             grant_on_any_birthday: false,
             groups,
         };
-        assert!(matches!(parse_rule_tree(body), Err(AppError::BadRequest(_))));
+        assert!(matches!(
+            parse_rule_tree(body),
+            Err(AppError::BadRequest(_))
+        ));
     }
 }

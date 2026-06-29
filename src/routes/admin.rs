@@ -330,10 +330,16 @@ async fn require_role_config_access(
                 "Token does not grant access to this role link.".into(),
             ));
         }
-        return Ok(RoleConfigAccess { discord_id: s.discord_id, read_only: s.read_only });
+        return Ok(RoleConfigAccess {
+            discord_id: s.discord_id,
+            read_only: s.read_only,
+        });
     }
     let discord_id = require_manager(state, jar, guild_id).await?;
-    Ok(RoleConfigAccess { discord_id, read_only: false })
+    Ok(RoleConfigAccess {
+        discord_id,
+        read_only: false,
+    })
 }
 
 // ---------------------------------------------------------------------
@@ -474,7 +480,11 @@ pub async fn role_config_save(
     .await?;
 
     if let Err(e) = jobs::enqueue_config_sync(&state.pool, &guild_id, &role_id).await {
-        tracing::warn!(guild_id, role_id, "enqueue config_sync after save failed: {e}");
+        tracing::warn!(
+            guild_id,
+            role_id,
+            "enqueue config_sync after save failed: {e}"
+        );
     }
 
     tracing::info!(
@@ -502,14 +512,13 @@ pub async fn role_config_preview(
 ) -> Result<Json<Value>, AppError> {
     require_role_config_access(&state, &jar, &headers, &guild_id, &role_id).await?;
 
-    let raw_tree: Value = sqlx::query_scalar(
-        "SELECT rule_tree FROM role_links WHERE guild_id=$1 AND role_id=$2",
-    )
-    .bind(&guild_id)
-    .bind(&role_id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Role link not found.".into()))?;
+    let raw_tree: Value =
+        sqlx::query_scalar("SELECT rule_tree FROM role_links WHERE guild_id=$1 AND role_id=$2")
+            .bind(&guild_id)
+            .bind(&role_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Role link not found.".into()))?;
     let tree: RuleTree = serde_json::from_value(raw_tree).unwrap_or_default();
 
     preview_count_for(&state, &guild_id, &tree).await
@@ -538,7 +547,9 @@ async fn preview_count_for(
 ) -> Result<Json<Value>, AppError> {
     // Convention 42: unconfigured ⇒ nobody.
     if !tree.grant_on_any_birthday && tree.groups.is_empty() {
-        return Ok(Json(json!({ "matching": 0, "linked": 0, "available": true })));
+        return Ok(Json(
+            json!({ "matching": 0, "linked": 0, "available": true }),
+        ));
     }
 
     let member_ids = match auth_gateway::fetch_guild_member_ids(
@@ -558,7 +569,9 @@ async fn preview_count_for(
         }
     };
     if member_ids.is_empty() {
-        return Ok(Json(json!({ "matching": 0, "linked": 0, "available": true })));
+        return Ok(Json(
+            json!({ "matching": 0, "linked": 0, "available": true }),
+        ));
     }
 
     let linked: i64 =
@@ -624,10 +637,20 @@ fn target_catalog() -> Vec<Value> {
         (HasBirthYear, "Provided a birth year", "age", ""),
         (HasBirthdaySet, "Has saved a birthday", "presence", ""),
         (ZodiacSign, "Western zodiac sign", "calendar", "zodiac"),
-        (ChineseZodiac, "Chinese zodiac animal", "calendar", "chinese"),
+        (
+            ChineseZodiac,
+            "Chinese zodiac animal",
+            "calendar",
+            "chinese",
+        ),
         (BirthSeason, "Birth season", "calendar", "season"),
         (Birthstone, "Birthstone", "calendar", "birthstone"),
-        (BirthWeekday, "Weekday they were born", "calendar", "weekday"),
+        (
+            BirthWeekday,
+            "Weekday they were born",
+            "calendar",
+            "weekday",
+        ),
     ];
     entries
         .iter()

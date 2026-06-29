@@ -384,9 +384,7 @@ pub async fn enqueue_resync_all_role_links(state: &AppState) -> Result<u64, AppE
         .await?;
     let n = links.len() as u64;
     for (guild_id, role_id) in links {
-        if let Err(e) =
-            jobs::enqueue_config_sync_unique(&state.pool, &guild_id, &role_id).await
-        {
+        if let Err(e) = jobs::enqueue_config_sync_unique(&state.pool, &guild_id, &role_id).await {
             tracing::warn!(guild_id, role_id, "tick enqueue config_sync failed: {e}");
         }
     }

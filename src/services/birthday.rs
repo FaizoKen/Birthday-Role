@@ -50,8 +50,8 @@ pub const ZODIAC_SIGNS: &[&str] = &[
 ];
 
 pub const CHINESE_ZODIACS: &[&str] = &[
-    "rat", "ox", "tiger", "rabbit", "dragon", "snake", "horse", "goat", "monkey", "rooster",
-    "dog", "pig",
+    "rat", "ox", "tiger", "rabbit", "dragon", "snake", "horse", "goat", "monkey", "rooster", "dog",
+    "pig",
 ];
 
 pub const SEASONS: &[&str] = &["winter", "spring", "summer", "autumn"];
@@ -252,8 +252,7 @@ pub fn compute_derived(month: i32, day: i32, year: Option<i32>) -> Derived {
         season: season(m).to_string(),
         birthstone: birthstone(m).to_string(),
         birth_weekday: year.map(|y| {
-            let date = NaiveDate::from_ymd_opt(y, m, d)
-                .unwrap_or_else(|| effective_bday(y, m, d));
+            let date = NaiveDate::from_ymd_opt(y, m, d).unwrap_or_else(|| effective_bday(y, m, d));
             weekday_name(date).to_string()
         }),
     }

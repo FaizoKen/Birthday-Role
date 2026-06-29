@@ -124,10 +124,7 @@ async fn main() {
 
     // The clock worker: periodically re-evaluates every role link so
     // time-relative birthday rules flip on schedule.
-    let tick_handle = tokio::spawn(tasks::tick::run(
-        Arc::clone(&state),
-        shutdown.subscribe(),
-    ));
+    let tick_handle = tokio::spawn(tasks::tick::run(Arc::clone(&state), shutdown.subscribe()));
 
     // All routes nested under the plugin's path prefix (Convention 23).
     let plugin_routes = Router::new()
@@ -184,12 +181,7 @@ async fn main() {
         .collect();
     let cors_layer = CorsLayer::new()
         .allow_origin(cors_origins)
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
         .allow_credentials(true)
         .max_age(Duration::from_secs(600));
