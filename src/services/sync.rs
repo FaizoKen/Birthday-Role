@@ -6,7 +6,9 @@
 //! `/auth/internal/*`, never a local JOIN. Convention 40: gateway HTTP
 //! failures bubble up (the worker retries) — we never clear a role on a
 //! transient lookup failure. Convention 47: a RoleLinkNotFound deletes the
-//! orphan local row instead of retrying forever.
+//! orphan local row instead of retrying forever. A disabled/paused link or a
+//! removal RoleLogic holds for confirmation is skipped (not retried): local
+//! assignments stay as-is, so the next tick resends the list.
 
 use std::collections::HashSet;
 
@@ -146,6 +148,7 @@ pub async fn sync_for_player(discord_id: &str, state: &AppState) -> Result<(), A
                                 delete_orphan_role_link(&g, &r, &pool).await;
                                 return;
                             }
+                            Err(AppError::RoleLinkDisabled) => return,
                             Err(AppError::UserLimitReached { limit }) => {
                                 tracing::warn!(g, r, did, limit, "user limit reached");
                                 return;
@@ -172,6 +175,7 @@ pub async fn sync_for_player(discord_id: &str, state: &AppState) -> Result<(), A
                                 delete_orphan_role_link(&g, &r, &pool).await;
                                 return;
                             }
+                            Err(AppError::RoleLinkDisabled) => return,
                             Err(e) => {
                                 tracing::error!(g, r, did, "remove_user failed: {e}");
                                 return;
@@ -304,16 +308,11 @@ pub async fn sync_for_role_link(
         return Ok(());
     }
 
-    match rl
+    let result = rl
         .upload_users(guild_id, role_id, &qualifying, &api_token)
-        .await
-    {
-        Ok(_) => {}
-        Err(AppError::RoleLinkNotFound) => {
-            delete_orphan_role_link(guild_id, role_id, pool).await;
-            return Ok(());
-        }
-        Err(e) => return Err(e),
+        .await;
+    if !upload_applied(result, guild_id, role_id, pool).await? {
+        return Ok(());
     }
 
     let mut tx = pool.begin().await?;
@@ -356,17 +355,12 @@ async fn drain_to_empty(
         return Ok(());
     }
 
-    match state
+    let result = state
         .rl_client
         .upload_users(guild_id, role_id, &[], api_token)
-        .await
-    {
-        Ok(_) => {}
-        Err(AppError::RoleLinkNotFound) => {
-            delete_orphan_role_link(guild_id, role_id, &state.pool).await;
-            return Ok(());
-        }
-        Err(e) => return Err(e),
+        .await;
+    if !upload_applied(result, guild_id, role_id, &state.pool).await? {
+        return Ok(());
     }
     sqlx::query("DELETE FROM role_assignments WHERE guild_id=$1 AND role_id=$2")
         .bind(guild_id)
@@ -374,6 +368,39 @@ async fn drain_to_empty(
         .execute(&state.pool)
         .await?;
     Ok(())
+}
+
+/// Classify a full-list upload result. `Ok(true)` = applied, mirror it into
+/// `role_assignments`; `Ok(false)` = skipped this cycle, leave local state
+/// alone so the next tick resends; `Err` = transient, let the worker retry.
+async fn upload_applied(
+    result: Result<usize, AppError>,
+    guild_id: &str,
+    role_id: &str,
+    pool: &sqlx::PgPool,
+) -> Result<bool, AppError> {
+    match result {
+        Ok(_) => Ok(true),
+        Err(AppError::RoleLinkNotFound) => {
+            delete_orphan_role_link(guild_id, role_id, pool).await;
+            Ok(false)
+        }
+        Err(AppError::RoleLinkDisabled) => Ok(false),
+        Err(AppError::RoleLinkRemovalHeld { previous, next }) => {
+            // The owner has to confirm in the RoleLogic dashboard (or mark the
+            // link as a trusted integration). Our 30-min tick resends within
+            // the 1h confirmation window, so no retry/backoff from us.
+            tracing::info!(
+                guild_id,
+                role_id,
+                previous,
+                next,
+                "RoleLogic held a large removal for owner confirmation; will resend next tick"
+            );
+            Ok(false)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Fan a resync out to every role link. Called by the tick worker so

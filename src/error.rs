@@ -20,8 +20,13 @@ pub enum AppError {
     #[error("Role link not found on RoleLogic")]
     RoleLinkNotFound,
 
-    #[error("Role link is disabled on RoleLogic")]
+    #[error("Role link is disabled or paused on RoleLogic")]
     RoleLinkDisabled,
+
+    /// 409 `confirm_required`: RoleLogic held a large removal until the owner
+    /// confirms it. Not retryable by us — the next sync resends the list.
+    #[error("Role link removal held for confirmation ({previous} -> {next} users)")]
+    RoleLinkRemovalHeld { previous: u64, next: u64 },
 
     #[error("Role link user limit reached ({limit})")]
     UserLimitReached { limit: usize },
@@ -71,6 +76,13 @@ impl IntoResponse for AppError {
             AppError::RoleLinkDisabled => (
                 StatusCode::FORBIDDEN,
                 axum::Json(json!({ "error": "Role link is disabled" })),
+            )
+                .into_response(),
+            AppError::RoleLinkRemovalHeld { .. } => (
+                StatusCode::CONFLICT,
+                axum::Json(json!({
+                    "error": "Role link removal is waiting for confirmation in the RoleLogic dashboard",
+                })),
             )
                 .into_response(),
             AppError::UserLimitReached { limit } => {
