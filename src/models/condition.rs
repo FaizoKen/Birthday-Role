@@ -6,7 +6,7 @@
 //!   in [services::rule_validator] using each target's `kind()`.
 //!
 //! Compared to the reference plugin's catalogue this is intentionally
-//! *richer*: 18 targets spanning the literal date, derived calendar facts
+//! *richer*: 16 targets spanning the literal date, derived calendar facts
 //! (zodiac / Chinese zodiac / season / birthstone / weekday) and the
 //! timezone-aware time-relative facts (today / this week / this month /
 //! days-until / age / age-turning).

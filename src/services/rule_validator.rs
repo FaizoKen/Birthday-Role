@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::error::AppError;
 use crate::models::condition::{Condition, ConditionOperator, ConditionTarget, TargetKind};
 use crate::models::rule::{ConditionGroup, RuleTree, MAX_CONDITIONS_PER_GROUP, MAX_GROUPS};
+use crate::services::birthday;
 
 #[derive(Debug, Deserialize)]
 pub struct RuleTreeBody {
@@ -106,10 +107,10 @@ fn validate_condition(
         )));
     }
 
-    let value = normalize_value(&where_, target.kind(), operator, raw.value)?;
+    let value = normalize_value(&where_, target, operator, raw.value)?;
     let value_end = match (operator, raw.value_end) {
         (ConditionOperator::Between, Some(end)) => {
-            Some(normalize_value(&where_, target.kind(), operator, end)?)
+            Some(normalize_value(&where_, target, operator, end)?)
         }
         (ConditionOperator::Between, None) => {
             return Err(AppError::BadRequest(format!(
@@ -141,14 +142,50 @@ fn validate_condition(
     })
 }
 
+/// The values a string target can hold, and what one of them is called.
+/// Every string target is an enum: the stored facts are always one of these,
+/// lower-case (`services::birthday`).
+fn string_choices(target: ConditionTarget) -> (&'static [&'static str], &'static str) {
+    use ConditionTarget::*;
+    match target {
+        ZodiacSign => (birthday::ZODIAC_SIGNS, "zodiac sign"),
+        ChineseZodiac => (birthday::CHINESE_ZODIACS, "Chinese zodiac animal"),
+        BirthSeason => (birthday::SEASONS, "season"),
+        Birthstone => (birthday::BIRTHSTONES, "birthstone"),
+        BirthWeekday => (birthday::WEEKDAYS, "weekday"),
+        _ => (&[], "value"),
+    }
+}
+
+/// One value for an enum target, as it is stored: trimmed and lower-cased
+/// ("Leo" is "leo", "fall" is "autumn"), and refused when it is not one of
+/// the target's values. Comparisons are exact, so before this a capital or a
+/// typo saved a condition that silently matched nobody.
+fn enum_value(where_: &str, target: ConditionTarget, raw: &str) -> Result<String, AppError> {
+    let mut v = raw.trim().to_lowercase();
+    if target == ConditionTarget::BirthSeason && v == "fall" {
+        v = "autumn".to_string();
+    }
+    let (choices, noun) = string_choices(target);
+    if choices.is_empty() || choices.contains(&v.as_str()) {
+        return Ok(v);
+    }
+    Err(AppError::BadRequest(format!(
+        "{where_}: \"{}\" isn't a {noun}. Use one of: {}.",
+        raw.trim(),
+        choices.join(", ")
+    )))
+}
+
 fn normalize_value(
     where_: &str,
-    kind: TargetKind,
+    target: ConditionTarget,
     op: ConditionOperator,
     raw: Value,
 ) -> Result<Value, AppError> {
-    use ConditionOperator::{In, NotIn};
+    use ConditionOperator::{Contains, In, NotIn, Regex};
 
+    let kind = target.kind();
     match (kind, op) {
         (TargetKind::Bool, _) => match &raw {
             Value::Bool(_) => Ok(raw),
@@ -193,13 +230,27 @@ fn normalize_value(
                 }
             }
             if out.is_empty() {
-                return Err(AppError::BadRequest(format!(
-                    "{where_}: list operator needs at least one value."
-                )));
+                let what = if target == ConditionTarget::BirthMonth {
+                    "pick at least one month"
+                } else {
+                    "enter at least one number"
+                };
+                return Err(AppError::BadRequest(format!("{where_}: {what}.")));
             }
             Ok(Value::Array(out))
         }
         (TargetKind::Int, _) => {
+            // An empty box is the normal state right after picking a number
+            // condition, and the role settings show this message under the
+            // rule while it lasts, so say what to do rather than `(got "")`.
+            let blank = match &raw {
+                Value::Null => true,
+                Value::String(s) => s.trim().is_empty(),
+                _ => false,
+            };
+            if blank {
+                return Err(AppError::BadRequest(format!("{where_}: enter a number.")));
+            }
             let n = match &raw {
                 Value::Number(num) => num.as_i64().or_else(|| num.as_f64().map(|f| f as i64)),
                 Value::String(s) => s.trim().parse::<i64>().ok(),
@@ -210,11 +261,11 @@ fn normalize_value(
             })
         }
         (TargetKind::String, In | NotIn) => {
-            let arr: Vec<Value> = match raw {
+            let items: Vec<Value> = match raw {
                 Value::Array(a) => a
                     .into_iter()
                     .filter(|v| !matches!(v, Value::Null))
-                    .filter(|v| !v.as_str().is_some_and(str::is_empty))
+                    .filter(|v| !v.as_str().is_some_and(|s| s.trim().is_empty()))
                     .collect(),
                 Value::String(s) => s
                     .split(',')
@@ -225,25 +276,43 @@ fn normalize_value(
                 Value::Null => vec![],
                 other => vec![other],
             };
-            if arr.is_empty() {
+            if items.is_empty() {
                 return Err(AppError::BadRequest(format!(
-                    "{where_}: list operator needs at least one value."
+                    "{where_}: pick at least one value."
                 )));
             }
-            Ok(Value::Array(arr))
-        }
-        (TargetKind::String, _) => match raw {
-            Value::String(s) => {
-                if s.trim().is_empty() {
-                    Err(AppError::BadRequest(format!("{where_}: value required.")))
-                } else {
-                    Ok(Value::String(s))
+            let mut out: Vec<Value> = Vec::with_capacity(items.len());
+            for it in items {
+                let Some(s) = it.as_str() else {
+                    return Err(AppError::BadRequest(format!(
+                        "{where_}: list values must be text (got {it})."
+                    )));
+                };
+                let v = Value::String(enum_value(where_, target, s)?);
+                if !out.contains(&v) {
+                    out.push(v);
                 }
             }
-            Value::Number(num) => Ok(Value::String(num.to_string())),
-            Value::Bool(b) => Ok(Value::String(b.to_string())),
-            _ => Err(AppError::BadRequest(format!("{where_}: value required."))),
-        },
+            Ok(Value::Array(out))
+        }
+        (TargetKind::String, _) => {
+            let s = match raw {
+                Value::String(s) => s,
+                Value::Number(num) => num.to_string(),
+                Value::Bool(b) => b.to_string(),
+                _ => String::new(),
+            };
+            if s.trim().is_empty() {
+                return Err(AppError::BadRequest(format!("{where_}: value required.")));
+            }
+            match op {
+                // A pattern is the admin's own; leave it exactly as typed.
+                Regex => Ok(Value::String(s)),
+                // A fragment of a stored (lower-case) value.
+                Contains => Ok(Value::String(s.trim().to_lowercase())),
+                _ => Ok(Value::String(enum_value(where_, target, &s)?)),
+            }
+        }
     }
 }
 
@@ -335,6 +404,71 @@ mod tests {
             parsed.rule_tree.groups[0].conditions[0].value,
             json!(["leo", "virgo"])
         );
+    }
+
+    #[test]
+    fn string_values_ignore_case_and_spaces() {
+        let body = one_group(vec![
+            input("zodiac_sign", "in", json!(["Leo", " VIRGO ", "leo"])),
+            input("birth_weekday", "eq", json!("Friday")),
+        ]);
+        let parsed = parse_rule_tree(body).unwrap();
+        let cs = &parsed.rule_tree.groups[0].conditions;
+        assert_eq!(cs[0].value, json!(["leo", "virgo"]));
+        assert_eq!(cs[1].value, json!("friday"));
+    }
+
+    #[test]
+    fn string_typo_is_refused_not_saved() {
+        let body = one_group(vec![input("zodiac_sign", "in", json!("leo, virgoo"))]);
+        let err = match parse_rule_tree(body) {
+            Err(AppError::BadRequest(m)) => m,
+            _ => panic!("expected a BadRequest"),
+        };
+        assert!(
+            err.starts_with("Group #1, condition #1: \"virgoo\" isn't a zodiac sign."),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn fall_is_autumn() {
+        let body = one_group(vec![input("birth_season", "eq", json!("Fall"))]);
+        let parsed = parse_rule_tree(body).unwrap();
+        assert_eq!(
+            parsed.rule_tree.groups[0].conditions[0].value,
+            json!("autumn")
+        );
+    }
+
+    #[test]
+    fn regex_is_kept_as_typed() {
+        let body = one_group(vec![input("zodiac_sign", "regex", json!("^(Leo|virgo)$"))]);
+        let parsed = parse_rule_tree(body).unwrap();
+        assert_eq!(
+            parsed.rule_tree.groups[0].conditions[0].value,
+            json!("^(Leo|virgo)$")
+        );
+    }
+
+    #[test]
+    fn empty_number_asks_for_one() {
+        let body = one_group(vec![input("age_years", "gte", json!(""))]);
+        let err = match parse_rule_tree(body) {
+            Err(AppError::BadRequest(m)) => m,
+            _ => panic!("expected a BadRequest"),
+        };
+        assert_eq!(err, "Group #1, condition #1: enter a number.");
+    }
+
+    #[test]
+    fn empty_month_list_asks_for_a_month() {
+        let body = one_group(vec![input("birth_month", "in", json!([]))]);
+        let err = match parse_rule_tree(body) {
+            Err(AppError::BadRequest(m)) => m,
+            _ => panic!("expected a BadRequest"),
+        };
+        assert_eq!(err, "Group #1, condition #1: pick at least one month.");
     }
 
     #[test]

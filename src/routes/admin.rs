@@ -545,13 +545,9 @@ async fn preview_count_for(
     guild_id: &str,
     tree: &RuleTree,
 ) -> Result<Json<Value>, AppError> {
-    // Convention 42: unconfigured ⇒ nobody.
-    if !tree.grant_on_any_birthday && tree.groups.is_empty() {
-        return Ok(Json(
-            json!({ "matching": 0, "linked": 0, "available": true }),
-        ));
-    }
-
+    // Convention 42: an unconfigured rule matches nobody — build_rule_where
+    // turns it into FALSE below. It still counts who has a birthday, so the
+    // count reads "0 of 5", not a "0 of 0" that hides the members it skips.
     let member_ids = match auth_gateway::fetch_guild_member_ids(
         &state.http,
         &state.config.auth_gateway_url,

@@ -82,6 +82,11 @@
     border-bottom:1px solid #20242e; }
   .cond:last-of-type { border-bottom:0; }
   .hint { color:#7a8497; font-size:11px; flex-basis:100%; margin-left:2px; }
+  /* A tick-box list takes its own line under the selects (× stays beside
+     them), with the hint below it. */
+  .cond .vw.wide { flex-basis:100%; order:1; }
+  .cond .vw .chips { margin-top:2px; }
+  .cond .hint { order:2; }
   .foot { display:flex; justify-content:space-between; align-items:center; gap:14px;
     flex-wrap:wrap; margin-top:24px; padding-top:16px; border-top:1px solid #232734; }
   .foot-btns { display:flex; gap:10px; align-items:center; margin-left:auto; }
@@ -164,13 +169,17 @@ function wireCopy(id,t){ const b=document.getElementById(id); if(!b) return;
     setTimeout(()=>b.textContent='Copy link',1500); })); }
 
 let state=null, dirty=false, refreshInFlight=false, supPending=false;
+// The footer count, kept across re-renders so it doesn't blank on each click.
+let lastCount='', previewSeq=0, previewTimer=null;
 function setDirty(d){ dirty=d; postDirty(d);
   const s=document.getElementById('save'); if(s) s.disabled=!d; }
 function ruleKey(c){ return JSON.stringify({
   g:!!c.grant_on_any_birthday, r:c.grant_on_any_birthday?[]:(c.groups||[]) }); }
 function recomputeDirty(){
   if(!state||!state._edit||!state.config) return;
-  setDirty(ruleKey(state._edit)!==ruleKey(state.config)); }
+  setDirty(ruleKey(state._edit)!==ruleKey(state.config));
+  autoPreview(400); // debounced: typing an age fires this per keystroke
+}
 
 function c(t,o,v,ve){ return {target:t,operator:o,value:v,value_end:ve??null}; }
 
@@ -319,7 +328,7 @@ function render(){
     </div>
     ${usersBlk}
     <div class="foot">
-      <span class="count" id="count"></span>
+      <span class="count" id="count">${lastCount}</span>
       <div class="foot-btns">
         <button id="preview">Preview</button>
         <button id="save" class="primary" ${dirty?'':'disabled'}>Save</button>
@@ -347,7 +356,7 @@ function render(){
   postHeight();
 }
 
-function choose(id){ state._preset=id; applyPreset(id); render(); }
+function choose(id){ state._preset=id; applyPreset(id); render(); autoPreview(); }
 function applyPreset(id){
   if(id==='custom'){
     state._edit.grant_on_any_birthday=false;
@@ -362,8 +371,32 @@ function applyPreset(id){
 }
 
 /* ---- advanced builder ---- */
+// One line under each condition, saying what it checks in plain words.
+const HELP={
+  is_birthday_today:"On their birthday, in their own timezone.",
+  is_birthday_week:"From 6 days before their birthday through the day itself.",
+  is_birthday_month:"The whole calendar month of their birthday.",
+  days_until_birthday:"0 on the day, 1 the day before, and so on.",
+  birth_month:"1 = January … 12 = December.",
+  birth_day:"The day of the month they were born, 1–31.",
+  birth_year:"Only members who shared a birth year can match.",
+  age_years:"Self-reported, never verified. Only members who shared a birth year can match.",
+  age_turning_this_year:"The age they turn on their next birthday. Needs a birth year.",
+  has_birth_year:"Whether they typed a birth year (it's optional).",
+  has_birthday_set:"True for everyone who added a birthday.",
+  zodiac_sign:"Western zodiac, from their birth date.",
+  chinese_zodiac:"By calendar birth year, so a January or early-February birthday can differ from the lunar sign. Needs a birth year.",
+  birth_season:"Northern-hemisphere seasons: December–February is winter.",
+  birthstone:"The traditional birthstone of their birth month.",
+  birth_weekday:"The weekday they were born on. Needs a birth year.",
+};
 function valOptions(t){ const k=t&&t.options_key;
   return (k&&state.value_options&&state.value_options[k])||null; }
+// What an "is one of" list can tick: [value, label] pairs, or null for a
+// typed list of numbers. Ticking can't misspell a sign or a month.
+function listChoices(t){
+  if(t.key==='birth_month') return MONTHS.map((m,i)=>[i+1,m.slice(0,3)]);
+  const o=valOptions(t); return o?o.map(v=>[v,cap(v)]):null; }
 function renderRule(){
   const box=document.getElementById('rule'); if(!box) return;
   const cfg=state._edit;
@@ -399,22 +432,25 @@ function condRow(cc,gi,ci){
     state.targets.filter(t=>t.group===g).map(t=>
       `<option value="${t.key}" ${t.key===cc.target?'selected':''}>${esc(t.label)}</option>`).join('')
     +`</optgroup>`).join('');
+  const wide=!!((opByKey(cc.operator)||{}).value_is_list&&listChoices(tgt));
   let mid;
   if(tgt.kind==='bool'){ const m=cc.value===true||cc.value==='true';
     mid=`<select class="bv"><option value="1" ${m?'selected':''}>is true</option>
       <option value="0" ${!m?'selected':''}>is false</option></select>`;
   } else { const ops=opsForKind(tgt.kind);
-    mid=`<select class="o">${ops.map(o=>`<option value="${o.key}" ${o.key===cc.operator?'selected':''}>${esc(o.label)}</option>`).join('')}</select><span class="vw">${valWidget(tgt,cc)}</span>`; }
+    mid=`<select class="o">${ops.map(o=>`<option value="${o.key}" ${o.key===cc.operator?'selected':''}>${esc(o.label)}</option>`).join('')}</select><span class="vw${wide?' wide':''}">${valWidget(tgt,cc)}</span>`; }
+  const help=HELP[tgt.key];
   return `<div class="cond" data-cond data-g="${gi}" data-c="${ci}">
     <select class="t">${tsel}</select>${mid}
-    <button class="x" data-del>×</button></div>`;
+    <button class="x" data-del>×</button>${help?`<div class="hint">${esc(help)}</div>`:''}</div>`;
 }
 function valWidget(tgt,cc){ const op=opByKey(cc.operator)||{};
   const opts=valOptions(tgt);
   if(op.value_is_list){
-    if(opts) return `<input type="text" class="v" placeholder="${opts.slice(0,3).join(', ')}…"
-      value="${esc(Array.isArray(cc.value)?cc.value.join(', '):'')}">`;
-    return `<input type="text" class="v" placeholder="comma,separated"
+    const ch=listChoices(tgt);
+    if(ch){ const on=(Array.isArray(cc.value)?cc.value:[]).map(String);
+      return `<span class="chips">${ch.map(([v,l])=>`<label class="ck ${on.includes(String(v))?'on':''}"><input type="checkbox" class="lv" value="${v}" ${on.includes(String(v))?'checked':''}>${esc(l)}</label>`).join('')}</span>`; }
+    return `<input type="text" class="v" placeholder="numbers, comma-separated"
       value="${esc(Array.isArray(cc.value)?cc.value.join(', '):'')}">`;
   }
   if(op.needs_value_end) return `<input type="number" class="v" placeholder="min" value="${cc.value??''}">
@@ -428,11 +464,17 @@ function wireCond(row){
   row.querySelector('.t').onchange=e=>{ cc.target=e.target.value; const t=targetByKey(cc.target);
     if(t.kind==='bool'){ cc.operator='eq'; cc.value=true; }
     else { const v=opsForKind(t.kind); if(!v.find(x=>x.key===cc.operator)) cc.operator=v[0].key;
-      const opts=valOptions(t); cc.value=opts?opts[0]:''; }
+      const opts=valOptions(t);
+      cc.value=(opByKey(cc.operator)||{}).value_is_list?[]:(opts?opts[0]:''); }
     cc.value_end=null; recomputeDirty(); renderRule(); postHeight(); };
   const bv=row.querySelector('.bv'); if(bv) bv.onchange=e=>{ cc.operator='eq';
     cc.value=e.target.value==='1'; recomputeDirty(); };
   const o=row.querySelector('.o'); if(o) o.onchange=e=>{ cc.operator=e.target.value;
+    // Carry the value across a list / single-value switch instead of leaving
+    // a list where one value is expected (or the reverse).
+    const list=!!(opByKey(cc.operator)||{}).value_is_list, opts=valOptions(targetByKey(cc.target));
+    if(list&&!Array.isArray(cc.value)) cc.value=(cc.value===''||cc.value==null)?[]:[cc.value];
+    else if(!list&&Array.isArray(cc.value)) cc.value=cc.value.length?cc.value[0]:(opts?opts[0]:'');
     cc.value_end=null; recomputeDirty(); renderRule(); postHeight(); };
   row.querySelectorAll('.v,.ve').forEach(inp=>inp.oninput=()=>{
     const t=targetByKey(cc.target),op=opByKey(cc.operator)||{};
@@ -441,6 +483,10 @@ function wireCond(row){
     else if(t.kind==='int') cc.value=inp.value===''?'':Number(inp.value);
     else cc.value=inp.value; recomputeDirty(); });
   const vsel=row.querySelector('select.v'); if(vsel) vsel.onchange=e=>{ cc.value=e.target.value; recomputeDirty(); };
+  row.querySelectorAll('input.lv').forEach(cb=>cb.onchange=()=>{
+    const num=targetByKey(cc.target).kind==='int';
+    cc.value=[...row.querySelectorAll('input.lv:checked')].map(x=>num?Number(x.value):x.value);
+    recomputeDirty(); renderRule(); postHeight(); });
   row.querySelector('[data-del]').onclick=()=>{ cfg.groups[gi].conditions.splice(ci,1);
     if(cfg.groups[gi].conditions.length===0) cfg.groups.splice(gi,1);
     if(cfg.groups.length===0) cfg.groups=[{conditions:[c('is_birthday_today','eq',true)]}];
@@ -469,32 +515,52 @@ async function setViewPerm(next){
 function previewPayload(){ const c=state._edit;
   return { grant_on_any_birthday:c.grant_on_any_birthday,
     groups: c.grant_on_any_birthday?[]:(c.groups||[]) }; }
-async function doPreview(){
-  const el=document.getElementById('count'); if(!el) return;
-  try{
-    const r=await fetch(`${BASE_URL}/admin/${GUILD_ID}/role/${ROLE_ID}/preview`,
-      {headers:apiHeaders(),credentials:apiCreds(),cache:'no-store'});
-    const d=await r.json();
-    if(!r.ok||d.available===false){ el.textContent=''; return; }
-    el.innerHTML=`<span class="ok">${d.matching}</span> of ${d.linked} member(s) with a birthday match`
-      +(dirty?` · <span style="color:#fbbf24">Save to apply</span>`:``);
-  }catch(_){ el.textContent=''; }
-  postHeight();
+function setCount(html){ lastCount=html; const el=document.getElementById('count');
+  if(el) el.innerHTML=html; postHeight(); }
+function countHtml(d,unsaved){
+  return `<span class="ok">${d.matching}</span> of ${d.linked} member(s) who added a birthday match`
+    +(unsaved?` · <span style="color:#fbbf24">Preview of unsaved rule</span>`:``);
 }
-function autoPreview(){ doPreview(); }
+// The count always describes the rule on screen: the saved rule's when
+// nothing is unsaved, the edit's (labelled) when something is. It used to
+// show the saved rule's count beside an unsaved choice, so every new link
+// opened on "0 of 0 … · Save to apply" (its saved rule grants nobody) right
+// under "Anyone who added a birthday", and blanked on every click.
+function autoPreview(delay){ clearTimeout(previewTimer);
+  previewTimer=setTimeout(runAutoPreview, delay||0); }
+async function runAutoPreview(){
+  if(!state) return;
+  const seq=++previewSeq, unsaved=dirty;
+  const url=`${BASE_URL}/admin/${GUILD_ID}/role/${ROLE_ID}/preview`;
+  try{
+    const r=unsaved
+      ? await fetch(url,{method:'POST',headers:apiHeaders(),credentials:apiCreds(),body:JSON.stringify(previewPayload())})
+      : await fetch(url,{headers:apiHeaders(),credentials:apiCreds(),cache:'no-store'});
+    const d=await r.json().catch(()=>({}));
+    if(seq!==previewSeq) return; // a newer edit already asked
+    if(r.ok&&d.available!==false){ setCount(countHtml(d,unsaved)); return; }
+    // An unfinished rule: say what's missing (the save-time validator's own
+    // words) instead of a count. Anything else: the reason, or nothing.
+    if(r.status===400&&d.error) setCount(`<span style="color:#fbbf24">${esc(d.error)}</span>`);
+    else setCount(r.ok&&d.reason?esc(d.reason):'');
+  }catch(_){ if(seq===previewSeq) setCount(''); }
+}
+// Previews the *current* (possibly unsaved) edit. POSTs the proposed tree to
+// the same /preview endpoint — backend dispatches by HTTP method.
 async function doPreviewEdit(){
-  const el=document.getElementById('count'), btn=document.getElementById('preview');
+  const btn=document.getElementById('preview');
   if(!btn) return;
   btn.disabled=true; const o=btn.textContent; btn.textContent='Previewing…';
+  clearTimeout(previewTimer); const seq=++previewSeq; // supersedes any auto preview in flight
   try{
     const r=await fetch(`${BASE_URL}/admin/${GUILD_ID}/role/${ROLE_ID}/preview`,
       {method:'POST',headers:apiHeaders(),credentials:apiCreds(),
        body:JSON.stringify(previewPayload())});
     const d=await r.json().catch(()=>({}));
+    if(seq!==previewSeq) return;
     if(!r.ok){ postToast(d.error||('Preview failed (HTTP '+r.status+')')); return; }
-    if(d.available===false){ el.textContent=d.reason||'Preview unavailable.'; postHeight(); return; }
-    el.innerHTML=`<span class="ok">${d.matching}</span> of ${d.linked} member(s) with a birthday match`
-      +(dirty?` · <span style="color:#fbbf24">Preview of unsaved rule</span>`:``);
+    if(d.available===false){ setCount(esc(d.reason||'Preview unavailable.')); return; }
+    setCount(countHtml(d,dirty));
   }catch(e){ postToast('Network error: '+e); }
   finally{ btn.disabled=false; btn.textContent=o; postHeight(); }
 }

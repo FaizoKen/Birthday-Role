@@ -344,7 +344,7 @@ async function refresh(){
       parts.join('') + `<div style="margin-top:6px;color:#b8a9d0">${line}</div>`+
       `<div class="chips">${chips.map(c=>`<span class="chip">${c}</span>`).join('')}</div>`+
       `<div style="margin-top:8px;color:#8a93a4;font-size:12px">Timezone: ${b.tz}`+
-      `${b.show_year?'':' · age hidden on the public list'}</div>`;
+      `${(b.show_year||!b.year)?'':' · age hidden on the public list'}</div>`;
     show('step-done');
     return;
   }

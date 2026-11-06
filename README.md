@@ -43,6 +43,12 @@ one-click presets plus a full AND/OR rule builder:
 
 Operators: `eq, neq, gt, gte, lt, lte, between, contains, regex, in, not_in`
 (integers also support `in`/`not_in`, so "born in {6,7,8}" is one condition).
+Text values (zodiac, Chinese zodiac, season, birthstone, weekday) are
+case-insensitive and checked against their list at save — a typo is refused
+rather than saved as a condition that matches nobody — and the rule builder
+offers them, and birth months, as tick boxes. Each condition shows a one-line
+explanation under it, and the count under the rule always previews the rule on
+screen.
 
 Rule shape is DNF: **any** OR-group matches; within a group **all**
 conditions must hold. An unconfigured role link grants to **nobody**
