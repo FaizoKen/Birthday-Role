@@ -59,8 +59,13 @@ fn shrink_held_error(status: reqwest::StatusCode, body: &str) -> Option<AppError
     Some(AppError::RoleLinkRemovalHeld {
         previous: errors["previous"].as_u64().unwrap_or(0),
         next: errors["next"].as_u64().unwrap_or(0),
+        change_id: errors["change_id"].as_str().map(str::to_owned),
     })
 }
+
+/// Sending a held list again with this header and the change id from the 409
+/// confirms it (within the hour). Source: `RoleLinkController`.
+const RL_CONFIRM_HEADER: &str = "X-RoleLink-Confirm";
 
 #[derive(Clone)]
 pub struct RoleLogicClient {
@@ -215,23 +220,29 @@ impl RoleLogicClient {
     /// Replace the full user set in a single atomic `PUT /users` request.
     /// Server rejects anything over `PUT_MAX_USERS`. For larger sets, callers
     /// should use [`upload_users`] which routes to the chunked flow.
+    /// `confirm` is the change id of a held write being sent again.
     pub async fn replace_users(
         &self,
         guild_id: &str,
         role_id: &str,
         user_ids: &[String],
         token: &str,
+        confirm: Option<&str>,
     ) -> Result<usize, AppError> {
         let url = format!(
             "{}/api/role-link/{}/{}/users",
             self.base_url, guild_id, role_id
         );
 
-        let resp = self
+        let mut req = self
             .http
             .put(&url)
             .header("Authorization", format!("Token {token}"))
-            .json(user_ids)
+            .json(user_ids);
+        if let Some(change_id) = confirm {
+            req = req.header(RL_CONFIRM_HEADER, change_id);
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| AppError::RoleLogic(e.to_string()))?;
@@ -262,16 +273,20 @@ impl RoleLogicClient {
     /// - `len <= 100_000`: single atomic `PUT /users`.
     /// - `len > 100_000`: chunked flow (init → chunks → commit).
     ///
-    /// Returns the deduped `user_count` reported by the server.
+    /// Returns the deduped `user_count` reported by the server. `confirm` is
+    /// the change id of a held write being sent again.
     pub async fn upload_users(
         &self,
         guild_id: &str,
         role_id: &str,
         user_ids: &[String],
         token: &str,
+        confirm: Option<&str>,
     ) -> Result<usize, AppError> {
         if user_ids.len() <= PUT_MAX_USERS {
-            return self.replace_users(guild_id, role_id, user_ids, token).await;
+            return self
+                .replace_users(guild_id, role_id, user_ids, token, confirm)
+                .await;
         }
 
         let total = user_ids.len();
@@ -316,7 +331,7 @@ impl RoleLogicClient {
         // A failed commit (notably a 409 shrink hold) keeps the staged users
         // server-side. We resend the full list next cycle anyway, so drop it.
         let final_count = match self
-            .commit_upload(guild_id, role_id, &upload_id, token)
+            .commit_upload(guild_id, role_id, &upload_id, token, confirm)
             .await
         {
             Ok(n) => n,
@@ -431,17 +446,22 @@ impl RoleLogicClient {
         role_id: &str,
         upload_id: &str,
         token: &str,
+        confirm: Option<&str>,
     ) -> Result<usize, AppError> {
         let url = format!(
             "{}/api/role-link/{}/{}/users/upload/{}/commit",
             self.base_url, guild_id, role_id, upload_id
         );
 
-        let resp = self
+        let mut req = self
             .http
             .post(&url)
             .timeout(COMMIT_TIMEOUT)
-            .header("Authorization", format!("Token {token}"))
+            .header("Authorization", format!("Token {token}"));
+        if let Some(change_id) = confirm {
+            req = req.header(RL_CONFIRM_HEADER, change_id);
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| AppError::RoleLogic(e.to_string()))?;
@@ -540,8 +560,9 @@ mod tests {
             shrink_held_error(StatusCode::CONFLICT, body),
             Some(AppError::RoleLinkRemovalHeld {
                 previous: 1200,
-                next: 300
-            })
+                next: 300,
+                change_id: Some(ref id),
+            }) if id == "8f0c"
         ));
         assert!(shrink_held_error(StatusCode::CONFLICT, r#"{"errors":"other"}"#).is_none());
         assert!(shrink_held_error(StatusCode::BAD_REQUEST, body).is_none());

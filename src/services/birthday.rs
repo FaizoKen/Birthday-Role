@@ -8,7 +8,7 @@
 //!
 //! No I/O, no async: callable from the hot path (Convention 5).
 
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use chrono_tz::Tz;
 
 use crate::models::facts::Facts;
@@ -157,8 +157,13 @@ pub fn normalize_tz(input: &str) -> String {
 
 /// The member's *local* calendar date right now.
 pub fn local_today(tz_name: &str) -> NaiveDate {
+    local_date_at(tz_name, Utc::now())
+}
+
+/// The member's *local* calendar date at `at`.
+pub fn local_date_at(tz_name: &str, at: DateTime<Utc>) -> NaiveDate {
     let tz: Tz = tz_name.parse().unwrap_or(chrono_tz::UTC);
-    Utc::now().with_timezone(&tz).date_naive()
+    at.with_timezone(&tz).date_naive()
 }
 
 /// Western tropical zodiac sign for a (month, day).
@@ -260,9 +265,15 @@ pub fn compute_derived(month: i32, day: i32, year: Option<i32>) -> Derived {
 
 /// Resolve every fact for "today" in the member's timezone.
 pub fn compute_facts(input: &BirthdayInput) -> Facts {
+    compute_facts_at(input, Utc::now())
+}
+
+/// Resolve every fact for the member's local date at `at`: what
+/// [`compute_facts`] answered (or will answer) at that instant.
+pub fn compute_facts_at(input: &BirthdayInput, at: DateTime<Utc>) -> Facts {
     let m = input.birth_month as u32;
     let d = input.birth_day as u32;
-    let today = local_today(&input.tz);
+    let today = local_date_at(&input.tz, at);
     let this_year = today.year();
 
     let eff_this = effective_bday(this_year, m, d);

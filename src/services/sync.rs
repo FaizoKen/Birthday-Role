@@ -9,14 +9,26 @@
 //! orphan local row instead of retrying forever. A disabled/paused link or a
 //! removal RoleLogic holds for confirmation is skipped (not retried): local
 //! assignments stay as-is, so the next tick resends the list.
+//!
+//! Except when the calendar alone explains a held removal. A "birthday today"
+//! role empties the day after every birthday in a small server, and RoleLogic
+//! holds any write that empties a list, so yesterday's birthday member kept
+//! the role until an owner confirmed it in the dashboard. When every member a
+//! held write removes is still in the server, still has a birthday saved, and
+//! was given the role by this same rule but no longer qualifies for it today,
+//! the write is confirmed with RoleLogic's change id (see
+//! [`explain_by_calendar`]). Anything else the gate is there for (a member
+//! list that came back short, birthdays that went missing, a rule edit, more
+//! removals than we will vouch for) is left to the owner as before.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use chrono::{DateTime, Utc};
 use futures_util::stream::{self, StreamExt};
 
 use crate::error::AppError;
 use crate::models::rule::RuleTree;
-use crate::services::birthday::{compute_facts, BirthdayInput};
+use crate::services::birthday::{compute_facts, compute_facts_at, BirthdayInput};
 use crate::services::condition_eval;
 use crate::services::rule_sql::{self, Bind};
 use crate::services::{auth_gateway, jobs};
@@ -309,8 +321,53 @@ pub async fn sync_for_role_link(
     }
 
     let result = rl
-        .upload_users(guild_id, role_id, &qualifying, &api_token)
+        .upload_users(guild_id, role_id, &qualifying, &api_token, None)
         .await;
+    let result = match result {
+        Err(AppError::RoleLinkRemovalHeld {
+            previous,
+            next,
+            change_id: Some(change_id),
+        }) => {
+            let held = Held {
+                previous,
+                next,
+                current: &current,
+                qualifying: &qualifying,
+                member_ids: &member_ids,
+                tree: &tree,
+            };
+            match explain_by_calendar(guild_id, role_id, &held, pool).await? {
+                Ok(removed) => {
+                    tracing::info!(
+                        guild_id,
+                        role_id,
+                        previous,
+                        next,
+                        removed,
+                        "RoleLogic held removals the calendar alone explains; confirming them"
+                    );
+                    rl.upload_users(guild_id, role_id, &qualifying, &api_token, Some(&change_id))
+                        .await
+                }
+                Err(why) => {
+                    tracing::info!(
+                        guild_id,
+                        role_id,
+                        previous,
+                        next,
+                        "Not confirming the held removal ourselves: {why}"
+                    );
+                    Err(AppError::RoleLinkRemovalHeld {
+                        previous,
+                        next,
+                        change_id: Some(change_id),
+                    })
+                }
+            }
+        }
+        other => other,
+    };
     if !upload_applied(result, guild_id, role_id, pool).await? {
         return Ok(());
     }
@@ -355,9 +412,11 @@ async fn drain_to_empty(
         return Ok(());
     }
 
+    // Never confirmed by us: an empty member list or an unconfigured rule is
+    // not the calendar moving on.
     let result = state
         .rl_client
-        .upload_users(guild_id, role_id, &[], api_token)
+        .upload_users(guild_id, role_id, &[], api_token, None)
         .await;
     if !upload_applied(result, guild_id, role_id, &state.pool).await? {
         return Ok(());
@@ -386,7 +445,7 @@ async fn upload_applied(
             Ok(false)
         }
         Err(AppError::RoleLinkDisabled) => Ok(false),
-        Err(AppError::RoleLinkRemovalHeld { previous, next }) => {
+        Err(AppError::RoleLinkRemovalHeld { previous, next, .. }) => {
             // The owner has to confirm in the RoleLogic dashboard (or mark the
             // link as a trusted integration). Our 30-min tick resends within
             // the 1h confirmation window, so no retry/backoff from us.
@@ -401,6 +460,181 @@ async fn upload_applied(
         }
         Err(e) => Err(e),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Held removals the calendar explains
+// ---------------------------------------------------------------------------
+
+/// The most removals one write may carry for us to confirm it ourselves.
+/// Covers the daily and weekly roles of any but the largest servers; a
+/// month role in a big server rolls over with more, and the owner confirms
+/// that one, as before.
+const SELF_CONFIRM_MAX: usize = 100;
+
+/// A full-list write RoleLogic is holding, with what this sync computed.
+struct Held<'a> {
+    /// RoleLogic's stored count, from its 409.
+    previous: u64,
+    /// The count of the list we sent, from its 409.
+    next: u64,
+    /// The local mirror: the list RoleLogic last accepted from us.
+    current: &'a [String],
+    /// The list we sent.
+    qualifying: &'a [String],
+    /// The server's members, as the Auth Gateway listed them for this sync.
+    member_ids: &'a [String],
+    tree: &'a RuleTree,
+}
+
+/// What we know about one member a held write removes.
+struct RemovedMember {
+    /// When they were last given the role (the mirror row's time).
+    assigned_at: DateTime<Utc>,
+    /// Their saved birthday, if they still have one.
+    birthday: Option<BirthdayInput>,
+}
+
+/// Whether the calendar alone explains every removal in a held write:
+/// `Ok(Ok(n))` = all `n` removals are explained, confirm it; `Ok(Err(why))`
+/// = leave it to the owner.
+async fn explain_by_calendar(
+    guild_id: &str,
+    role_id: &str,
+    held: &Held<'_>,
+    pool: &sqlx::PgPool,
+) -> Result<Result<usize, String>, AppError> {
+    let removed = match removals_to_explain(held) {
+        Ok(removed) => removed,
+        Err(why) => return Ok(Err(why)),
+    };
+    type Row = (
+        String,
+        DateTime<Utc>,
+        Option<i16>,
+        Option<i16>,
+        Option<i32>,
+        Option<String>,
+    );
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT ra.discord_id, ra.assigned_at, b.birth_month, b.birth_day, b.birth_year, b.tz \
+         FROM role_assignments ra \
+         LEFT JOIN birthdays b ON b.discord_id = ra.discord_id \
+         WHERE ra.guild_id = $1 AND ra.role_id = $2 AND ra.discord_id = ANY($3)",
+    )
+    .bind(guild_id)
+    .bind(role_id)
+    .bind(&removed)
+    .fetch_all(pool)
+    .await?;
+    let known: HashMap<String, RemovedMember> = rows
+        .into_iter()
+        .map(|(id, assigned_at, month, day, year, tz)| {
+            let birthday = match (month, day, tz) {
+                (Some(m), Some(d), Some(tz)) => Some(BirthdayInput {
+                    birth_month: m as i32,
+                    birth_day: d as i32,
+                    birth_year: year,
+                    tz,
+                }),
+                _ => None,
+            };
+            (
+                id,
+                RemovedMember {
+                    assigned_at,
+                    birthday,
+                },
+            )
+        })
+        .collect();
+    Ok(judge_removals(&removed, &known, held.tree, Utc::now()))
+}
+
+/// The members a held write removes, if it is a write we may judge at all:
+/// RoleLogic's numbers must match ours, the removals must be few enough, and
+/// every removed member must still be on the server's member list.
+fn removals_to_explain(held: &Held<'_>) -> Result<Vec<String>, String> {
+    if held.previous as usize != held.current.len() {
+        return Err(format!(
+            "RoleLogic stores {} users for this link, but we last sent {}",
+            held.previous,
+            held.current.len()
+        ));
+    }
+    if held.next as usize != held.qualifying.len() {
+        return Err(format!(
+            "RoleLogic counted {} users in a list of {}",
+            held.next,
+            held.qualifying.len()
+        ));
+    }
+    let keep: HashSet<&str> = held.qualifying.iter().map(String::as_str).collect();
+    let removed: Vec<String> = held
+        .current
+        .iter()
+        .filter(|id| !keep.contains(id.as_str()))
+        .cloned()
+        .collect();
+    if removed.is_empty() {
+        return Err("the write removes nobody we sent before".into());
+    }
+    if removed.len() > SELF_CONFIRM_MAX {
+        return Err(format!(
+            "{} removals is more than the {SELF_CONFIRM_MAX} we confirm ourselves",
+            removed.len()
+        ));
+    }
+    // Someone missing from the member list may have left, or the list may have
+    // come back incomplete; only the owner can tell those apart.
+    let members: HashSet<&str> = held.member_ids.iter().map(String::as_str).collect();
+    let missing = removed
+        .iter()
+        .filter(|id| !members.contains(id.as_str()))
+        .count();
+    if missing > 0 {
+        return Err(format!(
+            "{missing} of the {} removed members are not on the server's member list",
+            removed.len()
+        ));
+    }
+    Ok(removed)
+}
+
+/// Every removed member must still have a saved birthday, and the link's
+/// current rule must have given them the role at the time they got it and
+/// not give it to them now: then the date moving on is the whole reason.
+/// Judging both instants with the current rule also catches a rule edit,
+/// which the owner confirms: under an edited rule a member it now removes
+/// would not have qualified when they got the role either.
+fn judge_removals(
+    removed: &[String],
+    known: &HashMap<String, RemovedMember>,
+    tree: &RuleTree,
+    now: DateTime<Utc>,
+) -> Result<usize, String> {
+    for id in removed {
+        let Some(member) = known.get(id) else {
+            return Err("a removed member has no assignment on record".into());
+        };
+        let Some(birthday) = &member.birthday else {
+            return Err("a removed member no longer has a birthday saved".into());
+        };
+        if member.assigned_at > now {
+            return Err("a removed member's assignment is dated in the future".into());
+        }
+        if !condition_eval::evaluate(tree, &compute_facts_at(birthday, member.assigned_at)) {
+            return Err(
+                "the rule would not have given a removed member the role when they got it \
+                 (was the rule edited?)"
+                    .into(),
+            );
+        }
+        if condition_eval::evaluate(tree, &compute_facts_at(birthday, now)) {
+            return Err("the rule still gives a removed member the role".into());
+        }
+    }
+    Ok(removed.len())
 }
 
 /// Fan a resync out to every role link. Called by the tick worker so
@@ -434,5 +668,205 @@ async fn delete_orphan_role_link(guild_id: &str, role_id: &str, pool: &sqlx::PgP
         .await
     {
         tracing::error!(guild_id, role_id, "Failed to delete orphan role_link: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(s: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    fn rule(json: &str) -> RuleTree {
+        serde_json::from_str(json).unwrap()
+    }
+
+    /// The rule most production links use.
+    fn today_rule() -> RuleTree {
+        rule(
+            r#"{"groups":[{"conditions":[{"value":true,"target":"is_birthday_today","operator":"eq"}]}],"grant_on_any_birthday":false}"#,
+        )
+    }
+
+    fn week_rule() -> RuleTree {
+        rule(
+            r#"{"groups":[{"conditions":[{"value":true,"target":"is_birthday_week","operator":"eq"}]}],"grant_on_any_birthday":false}"#,
+        )
+    }
+
+    fn member(month: i32, day: i32, year: Option<i32>, tz: &str, assigned: &str) -> RemovedMember {
+        RemovedMember {
+            assigned_at: at(assigned),
+            birthday: Some(BirthdayInput {
+                birth_month: month,
+                birth_day: day,
+                birth_year: year,
+                tz: tz.to_string(),
+            }),
+        }
+    }
+
+    fn one(id: &str, m: RemovedMember) -> (Vec<String>, HashMap<String, RemovedMember>) {
+        (vec![id.to_string()], HashMap::from([(id.to_string(), m)]))
+    }
+
+    const NOW: &str = "2026-11-15T12:00:00Z";
+
+    #[test]
+    fn yesterdays_birthday_is_explained() {
+        let (removed, known) = one("a", member(11, 14, None, "UTC", "2026-11-14T09:00:00Z"));
+        assert_eq!(
+            judge_removals(&removed, &known, &today_rule(), at(NOW)),
+            Ok(1)
+        );
+    }
+
+    #[test]
+    fn the_day_is_judged_in_the_members_timezone() {
+        // UTC+14: at 11:00 UTC on 15 Nov it is already 16 Nov there, so a
+        // 15 Nov birthday is over although it is still the 15th in UTC.
+        let (removed, known) = one(
+            "a",
+            member(11, 15, None, "Pacific/Kiritimati", "2026-11-14T12:00:00Z"),
+        );
+        assert_eq!(
+            judge_removals(&removed, &known, &today_rule(), at("2026-11-15T11:00:00Z")),
+            Ok(1)
+        );
+    }
+
+    #[test]
+    fn a_member_the_rule_still_grants_is_not_explained() {
+        let (removed, known) = one("a", member(11, 15, None, "UTC", "2026-11-15T00:10:00Z"));
+        assert!(judge_removals(&removed, &known, &today_rule(), at(NOW)).is_err());
+    }
+
+    #[test]
+    fn the_end_of_a_birthday_week_is_explained() {
+        // Birthday 13 Nov: inside "the coming week" from 7 Nov to 13 Nov.
+        let (removed, known) = one("a", member(11, 13, None, "UTC", "2026-11-10T08:00:00Z"));
+        assert_eq!(
+            judge_removals(&removed, &known, &week_rule(), at(NOW)),
+            Ok(1)
+        );
+    }
+
+    #[test]
+    fn a_rule_edit_is_left_to_the_owner() {
+        // Given the role when they turned 18 under "age 18 or over"; the rule
+        // is now "21 or over", which would not have given it to them then.
+        let adult21 = rule(
+            r#"{"groups":[{"conditions":[{"value":21,"target":"age_years","operator":"gte"}]}],"grant_on_any_birthday":false}"#,
+        );
+        let (removed, known) = one("a", member(3, 1, Some(2008), "UTC", "2026-03-01T10:00:00Z"));
+        let why = judge_removals(&removed, &known, &adult21, at(NOW)).unwrap_err();
+        assert!(why.contains("rule edited"), "{why}");
+    }
+
+    #[test]
+    fn a_member_without_a_birthday_is_left_to_the_owner() {
+        let known = HashMap::from([(
+            "a".to_string(),
+            RemovedMember {
+                assigned_at: at("2026-11-14T09:00:00Z"),
+                birthday: None,
+            },
+        )]);
+        assert!(judge_removals(&["a".to_string()], &known, &today_rule(), at(NOW)).is_err());
+        // Nor one with no assignment on record at all.
+        assert!(judge_removals(&["b".to_string()], &known, &today_rule(), at(NOW)).is_err());
+    }
+
+    #[test]
+    fn grant_on_any_birthday_never_removes_for_the_calendar() {
+        let any = rule(r#"{"groups":[],"grant_on_any_birthday":true}"#);
+        let (removed, known) = one("a", member(11, 14, None, "UTC", "2026-11-14T09:00:00Z"));
+        assert!(judge_removals(&removed, &known, &any, at(NOW)).is_err());
+    }
+
+    #[test]
+    fn one_unexplained_removal_holds_the_whole_write() {
+        let mut known = HashMap::new();
+        known.insert(
+            "a".to_string(),
+            member(11, 14, None, "UTC", "2026-11-14T09:00:00Z"),
+        );
+        known.insert(
+            "b".to_string(),
+            member(11, 15, None, "UTC", "2026-11-15T00:10:00Z"),
+        );
+        let removed = vec!["a".to_string(), "b".to_string()];
+        assert!(judge_removals(&removed, &known, &today_rule(), at(NOW)).is_err());
+    }
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn held<'a>(
+        previous: u64,
+        next: u64,
+        current: &'a [String],
+        qualifying: &'a [String],
+        members: &'a [String],
+        tree: &'a RuleTree,
+    ) -> Held<'a> {
+        Held {
+            previous,
+            next,
+            current,
+            qualifying,
+            member_ids: members,
+            tree,
+        }
+    }
+
+    #[test]
+    fn the_removed_members_are_the_ones_dropped_from_our_last_list() {
+        let tree = today_rule();
+        let current = ids(&["a", "b", "c"]);
+        let qualifying = ids(&["c", "d"]);
+        let members = ids(&["a", "b", "c", "d", "e"]);
+        let h = held(3, 2, &current, &qualifying, &members, &tree);
+        assert_eq!(removals_to_explain(&h), Ok(ids(&["a", "b"])));
+    }
+
+    #[test]
+    fn a_list_rolelogic_counts_differently_is_not_ours_to_judge() {
+        let tree = today_rule();
+        let current = ids(&["a"]);
+        let empty: Vec<String> = vec![];
+        let members = ids(&["a"]);
+        assert!(removals_to_explain(&held(2, 0, &current, &empty, &members, &tree)).is_err());
+        assert!(removals_to_explain(&held(1, 1, &current, &empty, &members, &tree)).is_err());
+    }
+
+    #[test]
+    fn a_member_missing_from_the_member_list_is_left_to_the_owner() {
+        // They may have left, or the gateway's list may have come back short.
+        let tree = today_rule();
+        let current = ids(&["a", "b"]);
+        let empty: Vec<String> = vec![];
+        let members = ids(&["b"]);
+        let why = removals_to_explain(&held(2, 0, &current, &empty, &members, &tree)).unwrap_err();
+        assert!(why.contains("not on the server's member list"), "{why}");
+    }
+
+    #[test]
+    fn too_many_removals_are_left_to_the_owner() {
+        let tree = today_rule();
+        let current: Vec<String> = (0..=SELF_CONFIRM_MAX).map(|i| format!("{i:03}")).collect();
+        let empty: Vec<String> = vec![];
+        let n = current.len() as u64;
+        let h = held(n, 0, &current, &empty, &current, &tree);
+        assert!(removals_to_explain(&h).is_err());
+        let fewer = &current[..SELF_CONFIRM_MAX];
+        let h = held(fewer.len() as u64, 0, fewer, &empty, fewer, &tree);
+        assert_eq!(
+            removals_to_explain(&h).map(|r| r.len()),
+            Ok(SELF_CONFIRM_MAX)
+        );
     }
 }

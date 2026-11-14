@@ -24,9 +24,14 @@ pub enum AppError {
     RoleLinkDisabled,
 
     /// 409 `confirm_required`: RoleLogic held a large removal until the owner
-    /// confirms it. Not retryable by us — the next sync resends the list.
+    /// confirms it. The next sync resends the list; a removal the calendar
+    /// alone explains is confirmed with `change_id` instead (`sync.rs`).
     #[error("Role link removal held for confirmation ({previous} -> {next} users)")]
-    RoleLinkRemovalHeld { previous: u64, next: u64 },
+    RoleLinkRemovalHeld {
+        previous: u64,
+        next: u64,
+        change_id: Option<String>,
+    },
 
     #[error("Role link user limit reached ({limit})")]
     UserLimitReached { limit: usize },
