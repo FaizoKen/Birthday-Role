@@ -39,7 +39,7 @@ pub async fn run(state: Arc<AppState>, mut shutdown: ShutdownGuard) {
         _ = shutdown.wait() => return,
     }
 
-    let mut interval = tokio::time::interval(tick);
+    let mut interval = schedule(tick);
     loop {
         match jobs::gc_old(&state.pool).await {
             Ok(n) if n > 0 => tracing::info!(deleted = n, "GC'd old job rows"),
@@ -59,4 +59,35 @@ pub async fn run(state: Arc<AppState>, mut shutdown: ShutdownGuard) {
     }
 
     tracing::info!("Tick worker stopped");
+}
+
+/// The timer between passes: its first tick is one `tick` away. A plain
+/// `tokio::time::interval` completes its first tick at once, which made the
+/// loop run a second full pass (job GC and a resync queued for every role
+/// link, again) straight after the first one at boot. A pass that overruns
+/// the tick delays the next one instead of firing a catch-up burst.
+fn schedule(tick: Duration) -> tokio::time::Interval {
+    let mut interval = tokio::time::interval_at(tokio::time::Instant::now() + tick, tick);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    interval
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pass that runs after INITIAL_DELAY is the only one at boot: the
+    /// next waits a full tick.
+    #[tokio::test(start_paused = true)]
+    async fn next_pass_waits_a_full_tick() {
+        let tick = Duration::from_secs(30 * 60);
+        let mut interval = schedule(tick);
+        let early = tokio::time::timeout(tick - Duration::from_secs(1), interval.tick()).await;
+        assert!(
+            early.is_err(),
+            "the first tick must not complete before the tick"
+        );
+        let on_time = tokio::time::timeout(Duration::from_secs(2), interval.tick()).await;
+        assert!(on_time.is_ok(), "the first tick completes at the tick");
+    }
 }
